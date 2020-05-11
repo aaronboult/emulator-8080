@@ -56,7 +56,7 @@ struct Flags{
     // auxiliary_carry: bool,
 }
 
-fn unimplemented_opcode(processor: &Processor8080){
+fn unimplemented_opcode(){
     panic!("Unimplemented opcode");
 }
 
@@ -141,7 +141,7 @@ fn emulate(processor: &mut Processor8080){
         0x73 => processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.e, // MOV (HL),E
         0x74 => processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.h, // MOV (HL),H
         0x75 => processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.l, // MOV (HL),L
-        0x76 => unimplemented_opcode(processor), // CPU enters STOPPED state until the next interrupt
+        0x76 => unimplemented_opcode(), // CPU enters STOPPED state until the next interrupt
         0x77 => processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.a, // MOV (HL),A
         
         0x78 => processor.a = processor.b, // MOV A,B
@@ -152,6 +152,102 @@ fn emulate(processor: &mut Processor8080){
         0x7D => processor.a = processor.l, // MOV A,L
         0x7E => processor.a = processor.memory[get_address_from_pair(processor.h, processor.l) as usize], // MOV A,(HL)
         0x7F => processor.a = processor.a, // MOV A,A
+        //#endregion
+
+
+        /********************************************
+        *                 Double Add                *
+        ********************************************/
+        //#region
+        0x09 => double_add(processor, processor.b, processor.c),
+        0x19 => double_add(processor, processor.d, processor.e),
+        0x29 => double_add(processor, processor.h, processor.l),
+        0x39 => {
+            let stack_pointer_split = seperate_16bit_pair(processor.stack_pointer);
+            double_add(processor, stack_pointer_split.1, stack_pointer_split.0);
+        },
+        //#endregion
+
+
+        /********************************************
+        *                Inc Register               *
+        ********************************************/
+        //#region
+        0x04 => {
+            let answer: u16 = (processor.b as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x0C => {
+            let answer: u16 = (processor.c as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x14 => {
+            let answer: u16 = (processor.d as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x1C => {
+            let answer: u16 = (processor.e as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x24 => {
+            let answer: u16 = (processor.h as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x2C => {
+            let answer: u16 = (processor.l as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        0x34 => {
+            let address = get_address_from_pair(processor.h, processor.l) as usize;
+            let answer: u16 = (processor.memory[address] as u16) + 1;
+            step_register_flags(processor, answer);
+            processor.memory[address] = answer as u8;
+        },
+        0x3C => {
+            let answer: u16 = (processor.a as u16) + 1;
+            step_register_flags(processor, answer);
+        },
+        //#endregion
+
+
+        /********************************************
+        *                Dec Register               *
+        ********************************************/
+        //#region
+        0x05 => {
+            let answer: u16 = (processor.b as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x0D => {
+            let answer: u16 = (processor.c as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x15 => {
+            let answer: u16 = (processor.d as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x1D => {
+            let answer: u16 = (processor.e as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x25 => {
+            let answer: u16 = (processor.h as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x2D => {
+            let answer: u16 = (processor.l as u16) - 1;
+            step_register_flags(processor, answer);
+        },
+        0x35 => {
+            let address = get_address_from_pair(processor.h, processor.l) as usize;
+            let answer: u16 = (processor.memory[address] as u16) - 1;
+            step_register_flags(processor, answer);
+            processor.memory[address] = answer as u8;
+        },
+        0x3D => {
+            let answer: u16 = (processor.a as u16) - 1;
+            step_register_flags(processor, answer);
+        },
         //#endregion
 
 
@@ -406,10 +502,12 @@ fn emulate(processor: &mut Processor8080){
         0xE9 => processor.program_counter = get_address_from_pair(processor.h, processor.l),
         //#endregion
 
-        _ => unimplemented_opcode(processor),
+        _ => unimplemented_opcode(),
     }
 
 }
+
+
 
 fn check_parity(mut value: u16) -> bool {
 
@@ -438,7 +536,6 @@ fn set_flags(answer: u16, processor: &mut Processor8080){
     processor.flags.parity = check_parity(answer&0xff);
 
 }
-
 
 // byte_1 is highest order bits, byte_2 is lowest order bits
 fn get_address_from_pair(byte_1: u8, byte_2: u8) -> u16 {
@@ -546,5 +643,29 @@ fn logical(processor: &mut Processor8080, byte: u8, operator: fn(u8, u8) -> u16)
     set_flags(answer, processor);
 
     processor.a = answer as u8;
+
+}
+
+fn double_add(processor: &mut Processor8080, byte_a: u8, byte_b: u8){
+
+    let new_address = ((processor.h as u32) << 8) | (processor.l as u32) + ((byte_a as u32) << 8) | (byte_b as u32);
+
+    processor.flags.carry = new_address > 0xffff;
+
+    let split_address = seperate_16bit_pair(new_address as u16);
+
+    processor.h = split_address.1;
+
+    processor.l = split_address.0;
+
+}
+
+fn step_register_flags(processor: &mut Processor8080, answer: u16){
+
+    let carry_value = processor.flags.carry;
+
+    set_flags(answer, processor);
+
+    processor.flags.carry = carry_value;
 
 }
