@@ -589,7 +589,10 @@ pub fn emulate(processor: &mut Processor8080){
         0xBD => compare(processor, processor.l), // CMP L
         0xBE => compare(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize]), // CMP M
         0xBF => compare(processor, processor.a), // CMP A
-        0xFE => {}, // CPI data
+        0xFE => {
+            compare(processor, processor.memory[(processor.program_counter + 1) as usize]);
+            processor.program_counter += 1;
+        }, // CPI data
         //#endregion
 
 
