@@ -2,6 +2,8 @@
 Intel 8080 Data Book: https://altairclone.com/downloads/manuals/8080%20Programmers%20Manual.pdf
 */
 
+use std::mem;
+
 fn unimplemented_opcode(){
     panic!("Unimplemented opcode");
 }
@@ -34,8 +36,19 @@ impl Processor8080{
 
     pub fn load(&mut self, file_name: String){
 
+        use std::fs::File;
+        use std::io::Read;
 
+        let mut file = File::open(file_name).expect("File not found");
+    
+        for _ in 0..file.metadata().expect("Failed to read file").len(){
+    
+            self.memory.push(0);
+    
+        } // Initialize the buffer, inflating it to the size of the file
 
+        file.read_exact(&mut self.memory).expect("Failed to read file");
+        println!("{:?}", self.memory);
     }
 
 }
@@ -55,17 +68,94 @@ pub fn emulate(processor: &mut Processor8080){
     
     processor.program_counter += 1;
 
+    // println!("{:#?}", processor);
+    println!("{:x}", opcode);
+    println!("{}", processor.program_counter);
+
     match opcode {
 
         0x76 => panic!("Halting"), // HLT
 
-        0x01 => {}, // NOP
+        0x00 => {}, // NOP
 
-        0x02 => {
-            processor.c = processor.memory[(processor.program_counter + 1) as usize];
+
+        /********************************************
+        *               Store Register              *
+        ********************************************/
+        //#region
+        0x02 => processor.memory[get_address_from_pair(
+            processor.b,
+            processor.c,
+        ) as usize] = processor.a, // STAX B
+        0x12 => processor.memory[get_address_from_pair(
+            processor.d,
+            processor.e,
+        ) as usize] = processor.a, // STAX D
+        0x32 => {
+            let address = get_address_from_pair(
+                processor.memory[(processor.program_counter + 2) as usize],
+                processor.memory[(processor.program_counter + 1) as usize],
+            );
+            processor.memory[address as usize] = processor.a;
+            processor.program_counter += 2;
+        }, // STA addr
+        0x22 => {
+            let address = get_address_from_pair(
+                processor.memory[(processor.program_counter + 2) as usize],
+                processor.memory[(processor.program_counter + 1) as usize],
+            );
+            processor.memory[address as usize] = processor.l;
+            processor.memory[(address + 1) as usize] = processor.h;
+        }, // SHLD addr
+        0xEB => {
+            mem::swap(&mut processor.h, &mut processor.d);
+            mem::swap(&mut processor.l, &mut processor.e);
+        }, // XCHG
+        //endregion
+
+
+        /********************************************
+        *               Load Register               *
+        ********************************************/
+        //#region
+        0x01 => {
             processor.b = processor.memory[(processor.program_counter + 2) as usize];
+            processor.c = processor.memory[(processor.program_counter + 1) as usize];
             processor.program_counter += 2;
         }, // LXI B,operand
+        0x11 => {
+            processor.d = processor.memory[(processor.program_counter + 2) as usize];
+            processor.e = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 2;
+        }, // LXI D,operand
+        0x21 => {
+            processor.h = processor.memory[(processor.program_counter + 2) as usize];
+            processor.l = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 2;
+        }, // LXI H,operand
+        0x31 => {
+            processor.stack_pointer = get_address_from_pair(
+                processor.memory[(processor.program_counter + 2) as usize],
+                processor.memory[(processor.program_counter + 1) as usize],
+            );
+            processor.program_counter += 2;
+        }, // LXI SP,operand
+        0x3A => {
+            processor.a = processor.memory[get_address_from_pair(
+                processor.memory[(processor.program_counter + 2) as usize],
+                processor.memory[(processor.program_counter + 1) as usize],
+            ) as usize];
+            processor.program_counter += 2;
+        }, // LDA addr
+        0x2A => {
+            let address = get_address_from_pair(
+                processor.memory[(processor.program_counter + 2) as usize],
+                processor.memory[(processor.program_counter + 1) as usize],
+            );
+            processor.l = processor.memory[address as usize];
+            processor.h = processor.memory[(address + 1) as usize];
+        }, // LHLD addr
+        //#endregion
 
 
         /********************************************
@@ -142,6 +232,42 @@ pub fn emulate(processor: &mut Processor8080){
         0x7D => processor.a = processor.l, // MOV A,L
         0x7E => processor.a = processor.memory[get_address_from_pair(processor.h, processor.l) as usize], // MOV A,(HL)
         0x7F => processor.a = processor.a, // MOV A,A
+
+        0x06 => {
+            processor.b = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI B, D8	2		B <- byte 2
+        0x0e => {
+            processor.c = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI C,D8	2		C <- byte 2
+        0x16 => {
+            processor.d = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI D, D8	2		D <- byte 2
+        0x1e => {
+            processor.e = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI E,D8	2		E <- byte 2
+        0x26 => {
+            processor.h = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI H,D8	2		H <- byte 2
+        0x2e => {
+            processor.l = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI L, D8	2		L <- byte 2
+        0x36 => {
+            processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI M,D8	2		(HL) <- byte 2
+        0x3e => {
+            processor.a = processor.memory[(processor.program_counter + 1) as usize];
+            processor.program_counter += 1;
+        }, // MVI A,D8	2		A <- byte 2
+
+        0x0A => processor.a = processor.memory[get_address_from_pair(processor.b, processor.c) as usize], // LDAX B
+        0x1A => processor.a = processor.memory[get_address_from_pair(processor.d, processor.e) as usize], // LDAX D
         //#endregion
 
 
@@ -372,11 +498,11 @@ pub fn emulate(processor: &mut Processor8080){
             processor.flags.carry = flag_values & 0b10000001 != 0;
             processor.stack_pointer += 2;
         }, // POP PSW
-        0xF9 => processor.stack_pointer = get_address_from_pair(processor.h, processor.l),
+        0xF9 => processor.stack_pointer = get_address_from_pair(processor.h, processor.l), // SPHL
         0xE3 => {
             processor.h = processor.memory[processor.stack_pointer as usize + 1];
             processor.l = processor.memory[processor.stack_pointer as usize];
-        },
+        }, // XTHL
         //#endregion
 
 
@@ -463,6 +589,7 @@ pub fn emulate(processor: &mut Processor8080){
         0xBD => compare(processor, processor.l), // CMP L
         0xBE => compare(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize]), // CMP M
         0xBF => compare(processor, processor.a), // CMP A
+        0xFE => {}, // CPI data
         //#endregion
 
 
@@ -616,8 +743,6 @@ pub fn emulate(processor: &mut Processor8080){
         _ => unimplemented_opcode(),
 
     }
-
-    println!("{:#?}", processor);
 
 }
 
@@ -834,7 +959,7 @@ fn rotate_carry_logic(processor: &mut Processor8080, or_value: u8, and_value: u8
 
 }
 
-pub fn get_twos_complement(byte: u8) -> u16{
+fn get_twos_complement(byte: u8) -> u16{
 
     !byte as u16 + 1
 
