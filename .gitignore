@@ -1,2 +1,2 @@
 /target
-opcodes.txt
+/src/cpu/*

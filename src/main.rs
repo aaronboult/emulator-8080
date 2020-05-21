@@ -5,14 +5,14 @@ fn main() {
     
     let mut processor: Processor8080 = Default::default();
 
-    processor.load("invaders/invaders".to_string());
+    processor.initialize();
 
     processor.enabled = true;
 
-    loop {
+    while processor.enabled {
 
         emulate(&mut processor);
-
+        
     }
 
 }

@@ -4,14 +4,13 @@ Intel 8080 Data Book: https://altairclone.com/downloads/manuals/8080%20Programme
 
 use std::mem;
 
+mod disassembler;
+
 fn unimplemented_opcode(){
     panic!("Unimplemented opcode");
 }
 
-/*
-    Intel 8080 architecure
-    Little endian
-*/
+
 #[derive(Debug, Default)]
 pub struct Processor8080{
     a: u8, // ----
@@ -30,25 +29,52 @@ pub struct Processor8080{
     flags: Flags,
 
     pub enabled: bool,
+
+    rom_size: u16,
 }
 
 impl Processor8080{
 
-    pub fn load(&mut self, file_name: String){
+    pub fn initialize(&mut self){
+    
+        self.load_file("space-invaders-source/SpaceInvaders.h".to_string(), 0x0);
+        self.load_file("space-invaders-source/SpaceInvaders.g".to_string(), 0x800);
+        self.load_file("space-invaders-source/SpaceInvaders.f".to_string(), 0x1000);
+        self.load_file("space-invaders-source/SpaceInvaders.e".to_string(), 0x1800);
+
+        self.rom_size = self.memory.len() as u16;
+    
+        while self.memory.len() < 0x4000{
+            self.memory.push(0);
+        }
+    
+        println!("{:?}", self.memory);
+    
+        self.stack_pointer = 0x2400;
+
+    }
+
+    fn load_file(&mut self, file_name: String, offset: usize){
+
+        while self.memory.len() + 1 < offset{
+
+            self.memory.push(0);
+
+        }
 
         use std::fs::File;
         use std::io::Read;
 
         let mut file = File::open(file_name).expect("File not found");
-    
-        for _ in 0..file.metadata().expect("Failed to read file").len(){
-    
-            self.memory.push(0);
-    
-        } // Initialize the buffer, inflating it to the size of the file
 
-        file.read_exact(&mut self.memory).expect("Failed to read file");
-        println!("{:?}", self.memory);
+        let mut buffer: Vec<u8> = Vec::new();
+
+        file.read_to_end(&mut buffer).expect("Failed to read file");
+
+        println!("{:?}\n\n\n", buffer);
+
+        self.memory.append(&mut buffer);
+
     }
 
 }
@@ -65,18 +91,36 @@ struct Flags{
 pub fn emulate(processor: &mut Processor8080){
 
     let opcode: u8 = processor.memory[processor.program_counter as usize];
-    
-    processor.program_counter += 1;
 
-    // println!("{:#?}", processor);
-    println!("{:x}", opcode);
-    println!("{}", processor.program_counter);
+    if opcode != 0x00{
+
+        disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory);
+    
+        println!("Memory:\n0x{:x}", processor.memory[processor.program_counter as usize]);
+        println!("0x{:x}", processor.memory[(processor.program_counter + 1) as usize]);
+        println!("0x{:x}", processor.memory[(processor.program_counter + 2) as usize]);
+    
+        println!("Program Counter:\n{}", processor.program_counter);
+        println!("{:x}\nMisc:\n", processor.program_counter);
+
+    }
+
+    processor.program_counter += 1;
 
     match opcode {
 
-        0x76 => panic!("Halting"), // HLT
-
+        /********************************************
+        *                  Special                  *
+        ********************************************/
+        //#region
         0x00 => {}, // NOP
+        0xF3 => processor.enabled = false, // DI
+        0xFB => processor.enabled = true, // EI
+        0xD3 => {}, // OUT <- Needed
+        0xDB => {}, // IN
+        0x27 => {}, // DAA
+        0x76 => panic!("Halting"), // HLT
+        //#endregion
 
 
         /********************************************
@@ -93,16 +137,16 @@ pub fn emulate(processor: &mut Processor8080){
         ) as usize] = processor.a, // STAX D
         0x32 => {
             let address = get_address_from_pair(
-                processor.memory[(processor.program_counter + 2) as usize],
                 processor.memory[(processor.program_counter + 1) as usize],
+                processor.memory[processor.program_counter as usize],
             );
             processor.memory[address as usize] = processor.a;
             processor.program_counter += 2;
         }, // STA addr
         0x22 => {
             let address = get_address_from_pair(
-                processor.memory[(processor.program_counter + 2) as usize],
                 processor.memory[(processor.program_counter + 1) as usize],
+                processor.memory[processor.program_counter as usize],
             );
             processor.memory[address as usize] = processor.l;
             processor.memory[(address + 1) as usize] = processor.h;
@@ -119,38 +163,38 @@ pub fn emulate(processor: &mut Processor8080){
         ********************************************/
         //#region
         0x01 => {
-            processor.b = processor.memory[(processor.program_counter + 2) as usize];
-            processor.c = processor.memory[(processor.program_counter + 1) as usize];
+            processor.b = processor.memory[(processor.program_counter + 1) as usize];
+            processor.c = processor.memory[processor.program_counter as usize];
             processor.program_counter += 2;
         }, // LXI B,operand
         0x11 => {
-            processor.d = processor.memory[(processor.program_counter + 2) as usize];
-            processor.e = processor.memory[(processor.program_counter + 1) as usize];
+            processor.d = processor.memory[(processor.program_counter + 1) as usize];
+            processor.e = processor.memory[processor.program_counter as usize];
             processor.program_counter += 2;
         }, // LXI D,operand
         0x21 => {
-            processor.h = processor.memory[(processor.program_counter + 2) as usize];
-            processor.l = processor.memory[(processor.program_counter + 1) as usize];
+            processor.h = processor.memory[(processor.program_counter + 1) as usize];
+            processor.l = processor.memory[processor.program_counter as usize];
             processor.program_counter += 2;
         }, // LXI H,operand
         0x31 => {
             processor.stack_pointer = get_address_from_pair(
-                processor.memory[(processor.program_counter + 2) as usize],
                 processor.memory[(processor.program_counter + 1) as usize],
+                processor.memory[processor.program_counter as usize],
             );
             processor.program_counter += 2;
         }, // LXI SP,operand
         0x3A => {
             processor.a = processor.memory[get_address_from_pair(
-                processor.memory[(processor.program_counter + 2) as usize],
                 processor.memory[(processor.program_counter + 1) as usize],
+                processor.memory[processor.program_counter as usize],
             ) as usize];
             processor.program_counter += 2;
         }, // LDA addr
         0x2A => {
             let address = get_address_from_pair(
-                processor.memory[(processor.program_counter + 2) as usize],
                 processor.memory[(processor.program_counter + 1) as usize],
+                processor.memory[processor.program_counter as usize],
             );
             processor.l = processor.memory[address as usize];
             processor.h = processor.memory[(address + 1) as usize];
@@ -234,35 +278,35 @@ pub fn emulate(processor: &mut Processor8080){
         0x7F => processor.a = processor.a, // MOV A,A
 
         0x06 => {
-            processor.b = processor.memory[(processor.program_counter + 1) as usize];
+            processor.b = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI B, D8	2		B <- byte 2
         0x0e => {
-            processor.c = processor.memory[(processor.program_counter + 1) as usize];
+            processor.c = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI C,D8	2		C <- byte 2
         0x16 => {
-            processor.d = processor.memory[(processor.program_counter + 1) as usize];
+            processor.d = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI D, D8	2		D <- byte 2
         0x1e => {
-            processor.e = processor.memory[(processor.program_counter + 1) as usize];
+            processor.e = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI E,D8	2		E <- byte 2
         0x26 => {
-            processor.h = processor.memory[(processor.program_counter + 1) as usize];
+            processor.h = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI H,D8	2		H <- byte 2
         0x2e => {
-            processor.l = processor.memory[(processor.program_counter + 1) as usize];
+            processor.l = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI L, D8	2		L <- byte 2
         0x36 => {
-            processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.memory[(processor.program_counter + 1) as usize];
+            processor.memory[get_address_from_pair(processor.h, processor.l) as usize] = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI M,D8	2		(HL) <- byte 2
         0x3e => {
-            processor.a = processor.memory[(processor.program_counter + 1) as usize];
+            processor.a = processor.memory[processor.program_counter as usize];
             processor.program_counter += 1;
         }, // MVI A,D8	2		A <- byte 2
 
@@ -331,37 +375,37 @@ pub fn emulate(processor: &mut Processor8080){
         ********************************************/
         //#region
         0x05 => {
-            let answer: u16 = (processor.b as u16) - 1;
+            let answer: u16 = (processor.b as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR B
         0x0D => {
-            let answer: u16 = (processor.c as u16) - 1;
+            let answer: u16 = (processor.c as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR C
         0x15 => {
-            let answer: u16 = (processor.d as u16) - 1;
+            let answer: u16 = (processor.d as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR D
         0x1D => {
-            let answer: u16 = (processor.e as u16) - 1;
+            let answer: u16 = (processor.e as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR E
         0x25 => {
-            let answer: u16 = (processor.h as u16) - 1;
+            let answer: u16 = (processor.h as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR H
         0x2D => {
-            let answer: u16 = (processor.l as u16) - 1;
+            let answer: u16 = (processor.l as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR L
         0x35 => {
             let address = get_address_from_pair(processor.h, processor.l) as usize;
-            let answer: u16 = (processor.memory[address] as u16) - 1;
+            let answer: u16 = (processor.memory[address] as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
             processor.memory[address] = answer as u8;
         }, // DCR M
         0x3D => {
-            let answer: u16 = (processor.a as u16) - 1;
+            let answer: u16 = (processor.a as u16) + get_twos_complement(1);
             step_register_flags(processor, answer);
         }, // DCR A
         //#endregion
@@ -395,21 +439,21 @@ pub fn emulate(processor: &mut Processor8080){
         ********************************************/
         //#region
         0x0B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(processor.b, processor.c) - 1);
+            let pair = seperate_16bit_pair(get_address_from_pair(processor.b, processor.c) + get_twos_complement(1));
             processor.b = pair.1;
             processor.c = pair.0;
         }, // DCX B
         0x1B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(processor.d, processor.e) - 1);
+            let pair = seperate_16bit_pair(get_address_from_pair(processor.d, processor.e) + get_twos_complement(1));
             processor.d = pair.1;
             processor.e = pair.0;
         }, // DCX D
         0x2B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(processor.h, processor.l) - 1);
+            let pair = seperate_16bit_pair(get_address_from_pair(processor.h, processor.l) + get_twos_complement(1));
             processor.h = pair.1;
             processor.l = pair.0;
         }, // DCX H
-        0x3B => processor.stack_pointer -= 1, // DCX SP
+        0x3B => processor.stack_pointer += get_twos_complement(1), // DCX SP
         //#endregion
 
 
@@ -440,11 +484,11 @@ pub fn emulate(processor: &mut Processor8080){
         }, // ADC M - From memory address
         0x8F => add(processor, processor.a.into(), processor.c as u16), // ADC A
         0xC6 => {
-            add(processor, processor.memory[(processor.program_counter + 1) as usize].into(), 0);
+            add(processor, processor.memory[processor.program_counter as usize].into(), 0);
             processor.program_counter += 1;
         }, // ADI - Immediate
         0xCE => {
-            add(processor, processor.memory[(processor.program_counter + 1) as usize].into(), processor.c as u16);
+            add(processor, processor.memory[processor.program_counter as usize].into(), processor.c as u16);
             processor.program_counter += 1;
         }, // ACI - Immediate
         //#endregion
@@ -533,11 +577,11 @@ pub fn emulate(processor: &mut Processor8080){
         }, // SBB M - From memory address
         0x9F => subtract(processor, processor.a, processor.c), // SBB A
         0xD6 => {
-            subtract(processor, processor.memory[(processor.program_counter + 1) as usize], 0);
+            subtract(processor, processor.memory[processor.program_counter as usize], 0);
             processor.program_counter += 1;
         }, // SUI - Immediate
         0xDE => {
-            subtract(processor, processor.memory[(processor.program_counter + 1) as usize], processor.c);
+            subtract(processor, processor.memory[processor.program_counter as usize], processor.c);
             processor.program_counter += 1;
         }, // SBI - Immediate
         //#endregion
@@ -590,7 +634,7 @@ pub fn emulate(processor: &mut Processor8080){
         0xBE => compare(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize]), // CMP M
         0xBF => compare(processor, processor.a), // CMP A
         0xFE => {
-            compare(processor, processor.memory[(processor.program_counter + 1) as usize]);
+            compare(processor, processor.memory[processor.program_counter as usize]);
             processor.program_counter += 1;
         }, // CPI data
         //#endregion
@@ -618,7 +662,7 @@ pub fn emulate(processor: &mut Processor8080){
         0xA6 => logical(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize], |x,y| (x&y) as u16), // ANA M
         0xA7 => logical(processor, processor.a, |x,y| (x&y) as u16), // ANA A
         0xE6 => {
-            logical(processor, processor.memory[(processor.program_counter + 1) as usize], |x,y| (x&y) as u16);
+            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x&y) as u16);
             processor.program_counter += 1;
         }, // ANI
         //#endregion
@@ -637,7 +681,7 @@ pub fn emulate(processor: &mut Processor8080){
         0xB6 => logical(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize], |x,y| (x|y) as u16), // ORA M
         0xB7 => logical(processor, processor.a, |x,y| (x|y) as u16),  // ORA A
         0xF6 => {
-            logical(processor, processor.memory[(processor.program_counter + 1) as usize], |x,y| (x|y) as u16);
+            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x|y) as u16);
             processor.program_counter += 1;
         }, // ORI
         //#endregion
@@ -656,7 +700,7 @@ pub fn emulate(processor: &mut Processor8080){
         0xAE => logical(processor, processor.memory[get_address_from_pair(processor.h, processor.l) as usize], |x,y| (x^y) as u16),  // XRA M
         0xAF => logical(processor, processor.a, |x,y| (x^y) as u16), // XRA A
         0xEE => {
-            logical(processor, processor.memory[(processor.program_counter + 1) as usize], |x,y| (x^y) as u16);
+            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x^y) as u16);
             processor.program_counter += 1;
         }, // XRI
         //#endregion
@@ -747,6 +791,12 @@ pub fn emulate(processor: &mut Processor8080){
 
     }
 
+    if opcode != 0x00{
+
+        println!("\n\n==============");
+
+    }
+
 }
 
 
@@ -759,7 +809,7 @@ fn check_parity(mut value: u16) -> bool {
 
         is_even = !is_even;
 
-        value = value & (value - 1);
+        value = value & (value + get_twos_complement(1));
 
     }
 
@@ -786,7 +836,7 @@ fn get_address_from_pair(byte_1: u8, byte_2: u8) -> u16 {
 
 }
 
-// Lowest order bits at position 0, highest order bits at position 1
+// Highest order bits at position 0, lowest order bits at position 1
 fn seperate_16bit_pair(pair: u16) -> (u8, u8) {
     
     (
@@ -823,8 +873,8 @@ fn jump(processor: &mut Processor8080, flag: bool){
     if flag {
 
         processor.program_counter = get_address_from_pair(
-            processor.memory[(processor.program_counter + 2) as usize],
             processor.memory[(processor.program_counter + 1) as usize],
+            processor.memory[processor.program_counter as usize],
         );
 
     }
@@ -842,12 +892,19 @@ fn call(processor: &mut Processor8080, flag: bool){
 
         let return_address: u16 = processor.program_counter + 2;
 
-        push_address_onto_stack(processor, return_address);
+        push_address_onto_stack(processor, return_address); // Stack overflows the program and thus overwrites the ROM
+
+        println!("{:x}", get_address_from_pair(
+            processor.memory[(processor.program_counter + 1) as usize],
+            processor.memory[processor.program_counter as usize],
+        ));
 
         processor.program_counter = get_address_from_pair(
-            processor.memory[(processor.program_counter + 2) as usize], 
             processor.memory[(processor.program_counter + 1) as usize],
+            processor.memory[processor.program_counter as usize],
         );
+
+        println!("{:x}", processor.program_counter);
 
     }
     else {
@@ -891,11 +948,17 @@ fn push_address_onto_stack(processor: &mut Processor8080, address: u16){
 
 // byte_1 -> stack_pointer - 1, byte_2 -> stack_pointer - 2
 fn push_onto_stack(processor: &mut Processor8080, byte_1: u8, byte_2: u8){
-    
-    processor.memory[(processor.stack_pointer - 1) as usize] = byte_1; // Push return address onto the stack
-    processor.memory[(processor.stack_pointer - 2) as usize] = byte_2; // Little endian so it is pushed in reverse
 
-    processor.stack_pointer -= 2;
+    if processor.stack_pointer <= processor.rom_size { // Ensuring ROM is not overwritten
+
+        panic!("Cannot overwrite read only memory");
+
+    }
+    
+    processor.memory[(((processor.stack_pointer as u32) + (get_twos_complement(1) as u32)) as u16) as usize] = byte_1; // Push return address onto the stack
+    processor.memory[(((processor.stack_pointer as u32) + (get_twos_complement(2) as u32)) as u16) as usize] = byte_2; // Little endian so it is pushed in reverse
+
+    processor.stack_pointer = ((processor.stack_pointer as u32) + (get_twos_complement(2) as u32)) as u16;
 
 }
 
@@ -964,6 +1027,6 @@ fn rotate_carry_logic(processor: &mut Processor8080, or_value: u8, and_value: u8
 
 fn get_twos_complement(byte: u8) -> u16{
 
-    !byte as u16 + 1
+    ((!(byte as u16) as u32) + 1) as u16
 
 }
