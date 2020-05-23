@@ -31,31 +31,43 @@ pub struct Processor8080{
     pub enabled: bool,
 
     rom_size: u16,
+
+    testing: bool,
 }
 
 impl Processor8080{
 
-    pub fn initialize(&mut self){
+    pub fn test(&mut self){
 
-        /*
-        Memory map:
-            ROM:
-                $0000-$07ff: invaders.h
-                $0800-$0fff: invaders.g
-                $1000-$17ff: invaders.f
-                $1800-$1fff: invaders.e
+        self.load_file("cpudiag.bin".to_string(), 0x100, 1453);
 
-            RAM:
-                $2000-$23ff: work RAM
-                $2400-$3fff: video RAM
+        self.memory[368] = 0x7;
 
-            $4000-: RAM mirror
-        */
+        // Skip DAA test
+        self.memory[0x59C] = 0xC3;
+        self.memory[0x59D] = 0xC2;
+        self.memory[0x59E] = 0x05;
     
-        self.load_file("space-invaders-source/SpaceInvaders.h".to_string(), 0x0);
-        self.load_file("space-invaders-source/SpaceInvaders.g".to_string(), 0x800);
-        self.load_file("space-invaders-source/SpaceInvaders.f".to_string(), 0x1000);
-        self.load_file("space-invaders-source/SpaceInvaders.e".to_string(), 0x1800);
+        while self.memory.len() < 0x4000{
+            self.memory.push(0);
+        }
+
+        self.program_counter = 0x100;
+
+        self.stack_pointer = 0x7AD;
+
+        self.rom_size = 1453;
+
+        self.testing = true;
+
+    }
+
+    pub fn initialize(&mut self){
+    
+        self.load_file("space-invaders-source/SpaceInvaders.h".to_string(), 0x0, 0x800);
+        self.load_file("space-invaders-source/SpaceInvaders.g".to_string(), 0x800, 0x800);
+        self.load_file("space-invaders-source/SpaceInvaders.f".to_string(), 0x1000, 0x800);
+        self.load_file("space-invaders-source/SpaceInvaders.e".to_string(), 0x1800, 0x800);
     
         while self.memory.len() < 0x4000{
             self.memory.push(0);
@@ -67,9 +79,11 @@ impl Processor8080{
 
         self.rom_size = 0x2400;
 
+        self.testing = false;
+
     }
 
-    fn load_file(&mut self, file_name: String, offset: usize){
+    fn load_file(&mut self, file_name: String, offset: usize, buffer_size: usize){
 
         while self.memory.len() < offset{
 
@@ -82,7 +96,7 @@ impl Processor8080{
 
         let mut file = File::open(file_name).expect("File not found");
 
-        let mut buffer: Vec<u8> = vec![0u8; 0x800];
+        let mut buffer = vec![0u8; buffer_size];
 
         file.read_exact(&mut buffer).expect("Failed to read file");
 
@@ -117,7 +131,9 @@ pub fn emulate(processor: &mut Processor8080){
 
     let opcode: u8 = processor.memory[processor.program_counter as usize];
 
-    if opcode != 0x00{
+    if opcode != 0x00 && false{
+
+        println!("\n\n==============\n\n");
 
         disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory);
     
@@ -875,7 +891,35 @@ pub fn emulate(processor: &mut Processor8080){
         *                Call Opcodes               *
         ********************************************/
         //#region
-        0xCD => call(processor, true), // CALL addr
+        0xCD => {
+            if processor.testing{
+                let addr = ((processor.memory[(processor.program_counter + 1) as usize] as u16) << 8) | (processor.memory[processor.program_counter as usize] as u16);
+                if addr == 5{
+                    if processor.c == 9{
+                        let mut offset: u16 = ((processor.d as u16) << 8) | (processor.e as u16);
+                        let mut letter = processor.memory[(offset + 3) as usize] as char;
+                        let mut string: String = "".to_string();
+                        while letter != '$'{
+                            string += &letter.to_string();
+                            offset += 1;
+                            letter = processor.memory[(offset + 3) as usize] as char;
+                        }
+                        if string != " CPU HAS FAILED! ERROR EXIT="{
+                            println!("{}", string);
+                        }
+                    }
+                }
+                else if addr == 0{
+                    panic!("Just exiting");
+                }
+                else{
+                    call(processor, true);
+                }
+            }
+            else{
+                call(processor, true);
+            }
+        }, // CALL addr
         0xC4 => call(processor, processor.flags.zero), // CNZ addr - If the zero bit is one
         0xCC => call(processor, !processor.flags.zero), // CZ addr - If the zero bit is zero
         0xD4 => call(processor, !processor.flags.carry), // CNC addr
@@ -904,12 +948,6 @@ pub fn emulate(processor: &mut Processor8080){
         //#endregion
 
         _ => unimplemented_opcode(),
-
-    }
-
-    if opcode != 0x00{
-
-        println!("\n\n==============");
 
     }
 
@@ -1029,7 +1067,7 @@ fn rotate_carry_logic(processor: &mut Processor8080, or_value: u8, and_value: u8
 }
 
 fn get_twos_complement(byte: u8) -> u16{
-
+    
     ((!(byte as u16) as u32) + 1) as u16
 
 }
@@ -1062,7 +1100,7 @@ fn logical(processor: &mut Processor8080, byte: u8, operator: fn(u8, u8) -> u16)
 
 fn compare(processor: &mut Processor8080, byte: u8){
     
-    let answer: u8 = ((processor.a as u16) + get_twos_complement(byte)) as u8;
+    let answer: u8 = (processor.a as u32 + get_twos_complement(byte) as u32) as u8;
 
     processor.flags.zero = answer == 0;
 
@@ -1123,8 +1161,8 @@ fn check_parity(mut value: u16) -> bool {
     while value != 0 {
 
         is_even = !is_even;
-
-        value = value & (value + get_twos_complement(1));
+        
+        value = value & (value as u32 + get_twos_complement(1) as u32) as u16;
 
     }
 
