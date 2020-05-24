@@ -54,8 +54,6 @@ impl Processor8080{
 
         self.program_counter = 0x100;
 
-        self.stack_pointer = 0x7AD;
-
         self.rom_size = 1453;
 
         self.testing = true;
@@ -131,7 +129,7 @@ pub fn emulate(processor: &mut Processor8080){
 
     let opcode: u8 = processor.memory[processor.program_counter as usize];
 
-    if opcode != 0x00 && false{
+    // if opcode != 0x00 && true{
 
         println!("\n\n==============\n\n");
 
@@ -141,7 +139,7 @@ pub fn emulate(processor: &mut Processor8080){
         println!("\t0x{:x}", processor.memory[(processor.program_counter + 1) as usize]);
         println!("\t0x{:x}", processor.memory[(processor.program_counter + 2) as usize]);
 
-        println!("Registers:\n\tA: {:x}\n\tB: {:x}\n\tC: {:x}\n\tD: {:x}\n\tE: {:x}\n\tH: {:x}\n\tL: {:x}",
+        println!("Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}",
             processor.a, processor.b, processor.c, processor.d, processor.e, processor.h, processor.l
         );
 
@@ -155,7 +153,7 @@ pub fn emulate(processor: &mut Processor8080){
         println!("Stack Pointer:\n\tDecimal: {}", processor.stack_pointer);
         println!("\tHex: {:x}\nMisc:\n", processor.stack_pointer);
 
-    }
+    // }
 
     processor.program_counter += 1;
 
@@ -465,27 +463,33 @@ pub fn emulate(processor: &mut Processor8080){
         //#region
         0x04 => {
             let answer: u16 = (processor.b as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.b = answer as u8;
         }, // INR B
         0x0C => {
             let answer: u16 = (processor.c as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.c = answer as u8;
         }, // INR C
         0x14 => {
             let answer: u16 = (processor.d as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.d = answer as u8;
         }, // INR D
         0x1C => {
             let answer: u16 = (processor.e as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.e = answer as u8;
         }, // INR E
         0x24 => {
             let answer: u16 = (processor.h as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.h = answer as u8;
         }, // INR H
         0x2C => {
             let answer: u16 = (processor.l as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.l = answer as u8;
         }, // INR L
         0x34 => {
             let address = get_hl_address_pair(processor);
@@ -494,12 +498,13 @@ pub fn emulate(processor: &mut Processor8080){
             }
             let address = address.unwrap() as usize;
             let answer: u16 = (processor.memory[address] as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
             processor.memory[address] = answer as u8;
         }, // INR M
         0x3C => {
             let answer: u16 = (processor.a as u16) + 1;
-            step_register_carry(processor, answer);
+            step_register_flags(processor, answer);
+            processor.a = answer as u8;
         }, // INR A
         //#endregion
 
@@ -509,28 +514,34 @@ pub fn emulate(processor: &mut Processor8080){
         ********************************************/
         //#region
         0x05 => {
-            let answer: u16 = (processor.b as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.b as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.b = answer as u8;
         }, // DCR B
         0x0D => {
-            let answer: u16 = (processor.c as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.c as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.c = answer as u8;
         }, // DCR C
         0x15 => {
-            let answer: u16 = (processor.d as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.d as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.d = answer as u8;
         }, // DCR D
         0x1D => {
-            let answer: u16 = (processor.e as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.e as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.e = answer as u8;
         }, // DCR E
         0x25 => {
-            let answer: u16 = (processor.h as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.h as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.h = answer as u8;
         }, // DCR H
         0x2D => {
-            let answer: u16 = (processor.l as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.l as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.l = answer as u8;
         }, // DCR L
         0x35 => {
             let address = get_hl_address_pair(processor);
@@ -538,13 +549,14 @@ pub fn emulate(processor: &mut Processor8080){
                 return;
             }
             let address = address.unwrap() as usize;
-            let answer: u16 = (processor.memory[address] as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.memory[address] as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
             processor.memory[address] = answer as u8;
         }, // DCR M
         0x3D => {
-            let answer: u16 = (processor.a as u16) + get_twos_complement(1);
-            step_register_carry(processor, answer);
+            let answer: u16 = ((processor.a as u32) + get_twos_complement(1) as u32) as u16;
+            step_register_flags(processor, answer);
+            processor.a = answer as u8;
         }, // DCR A
         //#endregion
 
@@ -1072,7 +1084,7 @@ fn get_twos_complement(byte: u8) -> u16{
 
 }
 
-fn step_register_carry(processor: &mut Processor8080, answer: u16){
+fn step_register_flags(processor: &mut Processor8080, answer: u16){
 
     let carry_value = processor.flags.carry;
 
@@ -1146,11 +1158,11 @@ fn set_flags(answer: u16, processor: &mut Processor8080){
 
     processor.flags.zero = (answer & 0xff) == 0;
 
-    processor.flags.sign = (answer & 0x80) != 0;
+    processor.flags.sign = (answer & 0x800) != 0;
 
     processor.flags.carry = answer > 0xff;
 
-    processor.flags.parity = check_parity(answer&0xff);
+    processor.flags.parity = check_parity(answer & 0xff);
 
 }
 

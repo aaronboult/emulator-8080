@@ -11,7 +11,7 @@ fn main() {
 
     processor.enabled = true;
 
-    // for _ in 0..10{
+    // for _ in 0..50{
 
     //     emulate(&mut processor);
 
