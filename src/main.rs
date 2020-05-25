@@ -1,26 +1,12 @@
+mod machine;
 mod cpu;
-use cpu::*;
+
+use machine::*;
 
 fn main() {
-    
-    let mut processor: Processor8080 = Default::default();
 
-    // processor.initialize();
+    let mut arcade_machine = Machine::new(1, false);
 
-    processor.test();
-
-    processor.enabled = true;
-
-    // for _ in 0..50{
-
-    //     emulate(&mut processor);
-
-    // }
-
-    while processor.enabled {
-
-        emulate(&mut processor);
-        
-    }
+    arcade_machine.start();
 
 }

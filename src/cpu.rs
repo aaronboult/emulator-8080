@@ -10,8 +10,12 @@ fn unimplemented_opcode(){
     panic!("Unimplemented opcode");
 }
 
+pub struct File{
+    pub name: String,
+    pub offset: usize,
+    pub size: usize,
+}
 
-#[derive(Debug, Default)]
 pub struct Processor8080{
     a: u8, // ----
     b: u8, //    |
@@ -21,10 +25,10 @@ pub struct Processor8080{
     h: u8, //    |
     l: u8, // ----
     
-    pub stack_pointer: u16,
+    stack_pointer: u16,
     program_counter: u16,
 
-    pub memory: Vec<u8>,
+    memory: Vec<u8>,
 
     flags: Flags,
 
@@ -32,10 +36,29 @@ pub struct Processor8080{
 
     rom_size: u16,
 
+    input_handler: fn(&Self, u8),
+    output_handler: fn(&Self, u8),
+
     testing: bool,
 }
 
 impl Processor8080{
+
+    pub fn new(input_handler: fn(&Self, u8), output_handler: fn(&Self, u8)) -> Self{
+
+        Processor8080{
+            a: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0,
+            stack_pointer: 0, program_counter: 0,
+            memory: vec![],
+            flags: Default::default(),
+            enabled: true,
+            rom_size: 0,
+            input_handler: input_handler,
+            output_handler: output_handler,
+            testing: false,
+        }
+        
+    }
 
     pub fn test(&mut self){
 
@@ -58,14 +81,17 @@ impl Processor8080{
 
         self.testing = true;
 
+        self.enabled = true;
+
     }
 
-    pub fn initialize(&mut self){
-    
-        self.load_file("space-invaders-source/SpaceInvaders.h".to_string(), 0x0, 0x800);
-        self.load_file("space-invaders-source/SpaceInvaders.g".to_string(), 0x800, 0x800);
-        self.load_file("space-invaders-source/SpaceInvaders.f".to_string(), 0x1000, 0x800);
-        self.load_file("space-invaders-source/SpaceInvaders.e".to_string(), 0x1800, 0x800);
+    pub fn initialize(&mut self, files: Vec<File>){
+
+        for file in files{
+
+            self.load_file(file.name, file.offset, file.size);
+
+        }
     
         while self.memory.len() < 0x4000{
             self.memory.push(0);
@@ -75,9 +101,11 @@ impl Processor8080{
     
         self.stack_pointer = 0x2400;
 
-        self.rom_size = 0x2400;
+        self.rom_size = 0x2000;
 
         self.testing = false;
+
+        self.enabled = true;
 
     }
 
@@ -115,26 +143,14 @@ struct Flags{
 
 pub fn emulate(processor: &mut Processor8080){
 
-    if processor.stack_pointer < processor.rom_size { // Ensuring ROM is not overwritten
-
-        processor.stack_pointer = 0;
-
-    }
-
-    if processor.program_counter >= 0x4000{ // Preventing the program from trying to read outside the size of memory
-
-        processor.program_counter = 0;
-
-    }
-
     let opcode: u8 = processor.memory[processor.program_counter as usize];
 
-    // if opcode != 0x00 && true{
+    if opcode != 0x00 && true{
 
         println!("\n\n==============\n\n");
 
         disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory);
-    
+        
         println!("Memory:\n\t0x{:x}", processor.memory[processor.program_counter as usize]);
         println!("\t0x{:x}", processor.memory[(processor.program_counter + 1) as usize]);
         println!("\t0x{:x}", processor.memory[(processor.program_counter + 2) as usize]);
@@ -153,7 +169,7 @@ pub fn emulate(processor: &mut Processor8080){
         println!("Stack Pointer:\n\tDecimal: {}", processor.stack_pointer);
         println!("\tHex: {:x}\nMisc:\n", processor.stack_pointer);
 
-    // }
+    }
 
     processor.program_counter += 1;
 
@@ -166,8 +182,8 @@ pub fn emulate(processor: &mut Processor8080){
         0x00 => {}, // NOP
         0xF3 => processor.enabled = false, // DI
         0xFB => processor.enabled = true, // EI
-        0xD3 => {}, // OUT <- Needed
-        0xDB => {}, // IN
+        0xD3 => (processor.input_handler)(processor, processor.memory[processor.program_counter as usize]), // OUT
+        0xDB => (processor.output_handler)(processor, processor.memory[processor.program_counter as usize]), // IN
         0x27 => {}, // DAA
         0x76 => panic!("Halting"), // HLT
         //#endregion
@@ -689,18 +705,19 @@ pub fn emulate(processor: &mut Processor8080){
         0xD5 => push_onto_stack(processor, processor.d, processor.e), // PUSH D
         0xE5 => push_onto_stack(processor, processor.h, processor.l), // PUSH H
         0xF5 => push_onto_stack(processor, processor.a, {
+            // Format: S Z 0 AC 0 P 1 C
             let mut flags: u8 = 0b00000010;
             if processor.flags.sign{
-                flags = flags | 0b10000000; // Or the flag by the last bit of the zero flag
+                flags = flags | 0b10000000;
             }
             if processor.flags.zero{
-                flags = flags | 0b01000000; // Or the flag by the last bit of the zero flag
+                flags = flags | 0b01000000;
             }
             if processor.flags.parity{
-                flags = flags | 0b00000100; // Or the flag by the last bit of the zero flag
+                flags = flags | 0b00000100;
             }
             if processor.flags.carry{
-                flags = flags | 0b00000001; // Or the flag by the last bit of the zero flag
+                flags = flags | 0b00000001;
             }
             flags
         }), // PUSH PSW
@@ -720,13 +737,13 @@ pub fn emulate(processor: &mut Processor8080){
             processor.stack_pointer += 2;
         }, // POP H
         0xF1 => {
-            // SZ000P1C
+            // Format: S Z 0 AC 0 P 1 C
             processor.a = processor.memory[(processor.stack_pointer + 1) as usize];
             let flag_values = processor.memory[processor.stack_pointer as usize];
             processor.flags.sign = flag_values & 0b10000000 != 0;
             processor.flags.zero = flag_values & 0b01000000 != 0;
             processor.flags.parity = flag_values & 0b00000100 != 0;
-            processor.flags.carry = flag_values & 0b10000001 != 0;
+            processor.flags.carry = flag_values & 0b00000001 != 0;
             processor.stack_pointer += 2;
         }, // POP PSW
         0xF9 => processor.stack_pointer = get_address_from_pair(&mut processor.h, &mut processor.l), // SPHL
@@ -960,6 +977,18 @@ pub fn emulate(processor: &mut Processor8080){
         //#endregion
 
         _ => unimplemented_opcode(),
+
+    }
+
+    if processor.stack_pointer < processor.rom_size { // Ensuring ROM is not overwritten
+
+        processor.stack_pointer = 0;
+
+    }
+
+    if processor.program_counter >= 0x4000{ // Preventing the program from trying to read outside the size of memory
+
+        processor.program_counter = 0;
 
     }
 
