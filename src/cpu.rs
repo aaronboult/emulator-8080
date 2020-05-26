@@ -1,16 +1,18 @@
 /*
-Intel 8080 Data Book: https://altairclone.com/downloads/manuals/8080%20Programmers%20Manual.pdf
+    Intel 8080 Data Book: https://altairclone.com/downloads/manuals/8080%20Programmers%20Manual.pdf
 */
 
-use std::mem;
-
 mod disassembler;
+
+use std::mem;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
 
 fn unimplemented_opcode(){
     panic!("Unimplemented opcode");
 }
 
-pub struct File{
+pub struct FileToLoad{
     pub name: String,
     pub offset: usize,
     pub size: usize,
@@ -24,6 +26,8 @@ pub struct Processor8080{
     e: u8, //    |
     h: u8, //    |
     l: u8, // ----
+
+    pub custom_registers: Vec<u16>,
     
     stack_pointer: u16,
     program_counter: u16,
@@ -36,18 +40,36 @@ pub struct Processor8080{
 
     rom_size: u16,
 
-    input_handler: fn(&Self, u8),
-    output_handler: fn(&Self, u8),
+    input_handler: fn(&mut Self, u8) -> u8,
+    output_handler: fn(&mut Self, u8, u8),
 
     testing: bool,
+
+    pub logger: std::boxed::Box<dyn std::io::Write>,
 }
 
 impl Processor8080{
 
-    pub fn new(input_handler: fn(&Self, u8), output_handler: fn(&Self, u8)) -> Self{
+    pub fn new(input_handler: fn(&mut Self, u8) -> u8, output_handler: fn(&mut Self, u8, u8), log_to_file: bool) -> Self{
+
+        let logger;
+
+        if log_to_file{
+
+            logger = Box::new(BufWriter::new(File::create("log.txt").expect("Unable to create file"))) as Box<dyn Write>;
+
+        }
+        else{
+
+            let stdout = Box::leak(Box::new(io::stdout()));
+
+            logger = Box::new(BufWriter::new(stdout.lock())) as Box<dyn Write>
+
+        }
 
         Processor8080{
             a: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0,
+            custom_registers: vec![],
             stack_pointer: 0, program_counter: 0,
             memory: vec![],
             flags: Default::default(),
@@ -56,6 +78,7 @@ impl Processor8080{
             input_handler: input_handler,
             output_handler: output_handler,
             testing: false,
+            logger: logger,
         }
         
     }
@@ -85,7 +108,7 @@ impl Processor8080{
 
     }
 
-    pub fn initialize(&mut self, files: Vec<File>){
+    pub fn initialize(&mut self, files: Vec<FileToLoad>){
 
         for file in files{
 
@@ -147,27 +170,27 @@ pub fn emulate(processor: &mut Processor8080){
 
     if opcode != 0x00 && true{
 
-        println!("\n\n==============\n\n");
-
-        disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory);
+        write!(processor.logger, "\n\n==============\n\n");
         
-        println!("Memory:\n\t0x{:x}", processor.memory[processor.program_counter as usize]);
-        println!("\t0x{:x}", processor.memory[(processor.program_counter + 1) as usize]);
-        println!("\t0x{:x}", processor.memory[(processor.program_counter + 2) as usize]);
+        disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory, &mut processor.logger);
 
-        println!("Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}",
+        write!(processor.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
+            processor.memory[processor.program_counter as usize],
+            processor.memory[(processor.program_counter + 1) as usize],
+            processor.memory[(processor.program_counter + 2) as usize],
+        );
+
+        write!(processor.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
             processor.a, processor.b, processor.c, processor.d, processor.e, processor.h, processor.l
         );
 
-        println!("Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}", 
+        write!(processor.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
             processor.flags.zero, processor.flags.sign, processor.flags.parity, processor.flags.carry
         );
-    
-        println!("Program Counter:\n\tDecimal: {}", processor.program_counter);
-        println!("\tHex: {:x}", processor.program_counter);
-    
-        println!("Stack Pointer:\n\tDecimal: {}", processor.stack_pointer);
-        println!("\tHex: {:x}\nMisc:\n", processor.stack_pointer);
+        
+        write!(processor.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", processor.program_counter);
+
+        write!(processor.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", processor.stack_pointer);
 
     }
 
@@ -182,8 +205,8 @@ pub fn emulate(processor: &mut Processor8080){
         0x00 => {}, // NOP
         0xF3 => processor.enabled = false, // DI
         0xFB => processor.enabled = true, // EI
-        0xD3 => (processor.input_handler)(processor, processor.memory[processor.program_counter as usize]), // OUT
-        0xDB => (processor.output_handler)(processor, processor.memory[processor.program_counter as usize]), // IN
+        0xD3 => (processor.output_handler)(processor, processor.memory[processor.program_counter as usize], processor.a), // OUT
+        0xDB => processor.a = (processor.input_handler)(processor, processor.memory[processor.program_counter as usize]), // IN
         0x27 => {}, // DAA
         0x76 => panic!("Halting"), // HLT
         //#endregion
