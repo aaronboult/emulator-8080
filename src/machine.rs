@@ -1,8 +1,22 @@
 use crate::cpu::*;
-use crate::io_handlers::*;
+
+mod space_invaders;
+mod test;
+
+use std::time::SystemTime;
 
 pub struct Machine{
-    cpu: Processor8080,
+    pub cpu: Processor8080,
+    ports: Vec<u8>,
+    interrupt_handler: fn(&mut Machine),
+    pub timestamp: SystemTime,
+}
+
+pub struct SetupConfiguration{
+    input_handler: fn(&mut Processor8080, u8) -> u8,
+    output_handler: fn(&mut Processor8080, u8, u8),
+    interrupt_handler: fn(&mut Machine),
+    files: Vec<FileToLoad>,
     ports: Vec<u8>,
 }
 
@@ -10,54 +24,22 @@ impl Machine{
 
     pub fn new(game_id: u8, log_to_file: bool, test: bool) -> Machine{
 
-        let input_handler: fn(&mut Processor8080, u8) -> u8;
-        let output_handler: fn(&mut Processor8080, u8, u8);
-
-        let mut files: Vec<FileToLoad> = vec![];
-
-        let mut ports = vec![0; 256];
+        let mut setup_config = SetupConfiguration{
+            input_handler: test::test_in,
+            output_handler: test::test_out,
+    
+            interrupt_handler: test::test_interrupt,
+    
+            files: vec![],
+    
+            ports: vec![0; 256],
+        };
 
         match game_id {
 
             0 => {
 
-                input_handler = test_in;
-                output_handler = test_out;
-
-            }, // Test
-
-            1 => {
-
-                input_handler = space_invaders_in;
-                output_handler = space_invaders_out;
-
-                files.push(FileToLoad{
-                    name: "space-invaders-source/SpaceInvaders.h".to_string(),
-                    offset: 0x0,
-                    size: 0x800
-                });
-
-                files.push(FileToLoad{
-                    name: "space-invaders-source/SpaceInvaders.g".to_string(),
-                    offset: 0x800,
-                    size: 0x800
-                });
-
-                files.push(FileToLoad{
-                    name: "space-invaders-source/SpaceInvaders.f".to_string(),
-                    offset: 0x1000,
-                    size: 0x800
-                });
-
-                files.push(FileToLoad{
-                    name: "space-invaders-source/SpaceInvaders.e".to_string(),
-                    offset: 0x1800,
-                    size: 0x800
-                });
-                
-                ports[0] = 0b01110000;
-
-                ports[1] = 0b00010000;
+                space_invaders::setup(&mut setup_config);
 
             }, // Space Invaders
 
@@ -65,8 +47,10 @@ impl Machine{
         }
     
         let mut new_arcade = Machine{
-            cpu: Processor8080::new(input_handler, output_handler, log_to_file),
-            ports: ports,
+            cpu: Processor8080::new(setup_config.input_handler, setup_config.output_handler, log_to_file),
+            ports: setup_config.ports,
+            interrupt_handler: setup_config.interrupt_handler,
+            timestamp: SystemTime::now()
         };
     
         if test{
@@ -76,7 +60,7 @@ impl Machine{
         }
         else {
     
-            new_arcade.cpu.initialize(files);
+            new_arcade.cpu.initialize(setup_config.files);
     
         }
     
@@ -86,10 +70,12 @@ impl Machine{
 
     pub fn start(&mut self){
 
-        while self.cpu.enabled {
+        loop {
 
-            emulate(&mut self.cpu);
-            
+            self.cpu.emulate();
+
+            (self.interrupt_handler)(self); // Handle any program-specific interrupts
+
         }
 
     }
@@ -98,7 +84,7 @@ impl Machine{
 
         for _ in 0..n{
 
-            emulate(&mut self.cpu);
+            self.cpu.emulate();
 
         }
 
@@ -141,6 +127,12 @@ impl Machine{
             _ => {},
 
         }
+
+    }
+
+    pub fn get_time(&self) -> SystemTime{
+
+        SystemTime::now()
 
     }
 

@@ -36,7 +36,7 @@ pub struct Processor8080{
 
     flags: Flags,
 
-    pub enabled: bool,
+    pub interrupt_enabled: bool,
 
     rom_size: u16,
 
@@ -46,6 +46,15 @@ pub struct Processor8080{
     testing: bool,
 
     pub logger: std::boxed::Box<dyn std::io::Write>,
+}
+
+#[derive(Default, Debug)]
+struct Flags{
+    zero: bool,
+    sign: bool, // True if negative
+    parity: bool, // True if even
+    carry: bool,
+    // auxiliary_carry: bool,
 }
 
 impl Processor8080{
@@ -73,7 +82,7 @@ impl Processor8080{
             stack_pointer: 0, program_counter: 0,
             memory: vec![],
             flags: Default::default(),
-            enabled: true,
+            interrupt_enabled: false,
             rom_size: 0,
             input_handler: input_handler,
             output_handler: output_handler,
@@ -104,8 +113,6 @@ impl Processor8080{
 
         self.testing = true;
 
-        self.enabled = true;
-
     }
 
     pub fn initialize(&mut self, files: Vec<FileToLoad>){
@@ -128,8 +135,6 @@ impl Processor8080{
 
         self.testing = false;
 
-        self.enabled = true;
-
     }
 
     fn load_file(&mut self, file_name: String, offset: usize, buffer_size: usize){
@@ -140,7 +145,6 @@ impl Processor8080{
 
         }
 
-        use std::fs::File;
         use std::io::Read;
 
         let mut file = File::open(file_name).expect("File not found");
@@ -153,870 +157,869 @@ impl Processor8080{
 
     }
 
-}
 
-#[derive(Default, Debug)]
-struct Flags{
-    zero: bool,
-    sign: bool, // True if negative
-    parity: bool, // True if even
-    carry: bool,
-    // auxiliary_carry: bool,
-}
-
-pub fn emulate(processor: &mut Processor8080){
-
-    let opcode: u8 = processor.memory[processor.program_counter as usize];
-
-    if opcode != 0x00 && true{
-
-        write!(processor.logger, "\n\n==============\n\n");
-        
-        disassembler::check_opcode_8080(processor.program_counter as usize, &processor.memory, &mut processor.logger);
-
-        write!(processor.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
-            processor.memory[processor.program_counter as usize],
-            processor.memory[(processor.program_counter + 1) as usize],
-            processor.memory[(processor.program_counter + 2) as usize],
-        );
-
-        write!(processor.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
-            processor.a, processor.b, processor.c, processor.d, processor.e, processor.h, processor.l
-        );
-
-        write!(processor.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
-            processor.flags.zero, processor.flags.sign, processor.flags.parity, processor.flags.carry
-        );
-        
-        write!(processor.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", processor.program_counter);
-
-        write!(processor.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", processor.stack_pointer);
-
+    pub fn generate_interrupt(&mut self, interrupt_number: u8){
+    
+        push_address_onto_stack(self, self.program_counter);
+    
+        self.program_counter = (8 * interrupt_number) as u16;
+    
     }
 
-    processor.program_counter += 1;
-
-    match opcode {
-
-        /********************************************
-        *                  Special                  *
-        ********************************************/
-        //#region
-        0x00 => {}, // NOP
-        0xF3 => processor.enabled = false, // DI
-        0xFB => processor.enabled = true, // EI
-        0xD3 => (processor.output_handler)(processor, processor.memory[processor.program_counter as usize], processor.a), // OUT
-        0xDB => processor.a = (processor.input_handler)(processor, processor.memory[processor.program_counter as usize]), // IN
-        0x27 => {}, // DAA
-        0x76 => panic!("Halting"), // HLT
-        //#endregion
-
-
-        /********************************************
-        *               Store Register              *
-        ********************************************/
-        //#region
-        0x02 => {
-            let address = get_address_from_pair(
-                &mut processor.b,
-                &mut processor.c,
+    pub fn emulate(&mut self){
+    
+        let opcode: u8 = self.memory[self.program_counter as usize];
+    
+        if opcode != 0x00 && true{
+    
+            write!(self.logger, "\n\n==============\n\n");
+            
+            disassembler::check_opcode_8080(self.program_counter as usize, &self.memory, &mut self.logger);
+    
+            write!(self.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
+                self.memory[self.program_counter as usize],
+                self.memory[(self.program_counter + 1) as usize],
+                self.memory[(self.program_counter + 2) as usize],
             );
-            if address < 0x2000{
-                return;
-            }
-            processor.memory[address as usize] = processor.a;
-        }, // STAX B
-        0x12 => {
-            let address = get_address_from_pair(
-                &mut processor.d,
-                &mut processor.e,
+    
+            write!(self.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
+                self.a, self.b, self.c, self.d, self.e, self.h, self.l
             );
-            if address < 0x2000{
-                return;
-            }
-            processor.memory[address as usize] = processor.a;
-        }, // STAX D
-        0x32 => {
-            let mut first_byte = processor.memory[(processor.program_counter + 1) as usize];
-            let mut second_byte = processor.memory[processor.program_counter as usize];
-            let address = get_address_from_pair(
-                &mut first_byte,
-                &mut second_byte,
+    
+            write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
+                self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
             );
-            if address < 0x2000{
-                return;
-            }
-            processor.memory[address as usize] = processor.a;
-            processor.program_counter += 2;
-        }, // STA addr
-        0x22 => {
-            let mut first_byte = processor.memory[(processor.program_counter + 1) as usize];
-            let mut second_byte = processor.memory[processor.program_counter as usize];
-            let address = get_address_from_pair(
-                &mut first_byte,
-                &mut second_byte,
-            );
-            if address + 1 < 0x2000{
-                return;
-            }
-            processor.memory[address as usize] = processor.l;
-            processor.memory[(address + 1) as usize] = processor.h;
-            processor.program_counter += 2;
-        }, // SHLD addr
-        0xEB => {
-            mem::swap(&mut processor.h, &mut processor.d);
-            mem::swap(&mut processor.l, &mut processor.e);
-        }, // XCHG
-        //endregion
-
-
-        /********************************************
-        *               Load Register               *
-        ********************************************/
-        //#region
-        0x01 => {
-            processor.b = processor.memory[(processor.program_counter + 1) as usize];
-            processor.c = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 2;
-        }, // LXI B,operand
-        0x11 => {
-            processor.d = processor.memory[(processor.program_counter + 1) as usize];
-            processor.e = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 2;
-        }, // LXI D,operand
-        0x21 => {
-            processor.h = processor.memory[(processor.program_counter + 1) as usize];
-            processor.l = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 2;
-        }, // LXI H,operand
-        0x31 => {
-            let mut first_byte = processor.memory[(processor.program_counter + 1) as usize];
-            let mut second_byte = processor.memory[processor.program_counter as usize];
-            let address = get_address_from_pair(&mut first_byte,&mut second_byte);
-            processor.stack_pointer = address;
-            processor.program_counter += 2;
-        }, // LXI SP,operand
-        0x3A => {
-            let mut first_byte = processor.memory[(processor.program_counter + 1) as usize];
-            let mut second_byte = processor.memory[processor.program_counter as usize];
-            let address = get_address_from_pair(&mut first_byte,&mut second_byte);
-            processor.a = processor.memory[address as usize];
-            processor.program_counter += 2;
-        }, // LDA addr
-        0x2A => {
-            let mut first_byte = processor.memory[(processor.program_counter + 1) as usize];
-            let mut second_byte = processor.memory[processor.program_counter as usize];
-            let address = get_address_from_pair(&mut first_byte,&mut second_byte);
-            processor.l = processor.memory[address as usize];
-            processor.h = processor.memory[(address + 1) as usize];
-        }, // LHLD addr
-        //#endregion
-
-
-        /********************************************
-        *                Move Opcodes               *
-        ********************************************/
-        //#region
-        0x40 => processor.b = processor.b, // MOV B,B
-        0x41 => processor.b = processor.c, // MOV B,C
-        0x42 => processor.b = processor.d, // MOV B,D
-        0x43 => processor.b = processor.e, // MOV B,E
-        0x44 => processor.b = processor.h, // MOV B,H
-        0x45 => processor.b = processor.l, // MOV B,L
-        0x46 => processor.b = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV B,(HL)
-        0x47 => processor.b = processor.a, // MOV B,A
-
-        0x48 => processor.c = processor.b, // MOV C,B
-        0x49 => processor.c = processor.c, // MOV C,C
-        0x4A => processor.c = processor.d, // MOV C,D
-        0x4B => processor.c = processor.e, // MOV C,E
-        0x4C => processor.c = processor.h, // MOV C,H
-        0x4D => processor.c = processor.l, // MOV C,L
-        0x4E => processor.c = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV D,(HL)
-        0x4F => processor.c = processor.a, // MOV C,A
-
-        0x50 => processor.d = processor.b, // MOV D,B
-        0x51 => processor.d = processor.c, // MOV D,C
-        0x52 => processor.d = processor.d, // MOV D,D
-        0x53 => processor.d = processor.e, // MOV D,E
-        0x54 => processor.d = processor.h, // MOV D,H
-        0x55 => processor.d = processor.l, // MOV D,L
-        0x56 => processor.d = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV D(HL)
-        0x57 => processor.d = processor.a, // MOV D,A
-
-        0x58 => processor.e = processor.b, // MOV E,B
-        0x59 => processor.e = processor.c, // MOV E,C
-        0x5A => processor.e = processor.d, // MOV E,D
-        0x5B => processor.e = processor.e, // MOV E,E
-        0x5C => processor.e = processor.h, // MOV E,H
-        0x5D => processor.e = processor.l, // MOV E,L
-        0x5E => processor.e = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV E,(HL)
-        0x5F => processor.e = processor.a, // MOV E,A
-        
-        0x60 => processor.h = processor.b, // MOV H,B
-        0x61 => processor.h = processor.c, // MOV H,C
-        0x62 => processor.h = processor.d, // MOV H,D
-        0x63 => processor.h = processor.e, // MOV H,E
-        0x64 => processor.h = processor.h, // MOV H,H
-        0x65 => processor.h = processor.l, // MOV H,L
-        0x66 => processor.h = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV H,(HL)
-        0x67 => processor.h = processor.a, // MOV H,A
-        
-        0x68 => processor.l = processor.b, // MOV L,B
-        0x69 => processor.l = processor.c, // MOV L,C
-        0x6A => processor.l = processor.d, // MOV L,D
-        0x6B => processor.l = processor.e, // MOV L,E
-        0x6C => processor.l = processor.h, // MOV L,H
-        0x6D => processor.l = processor.l, // MOV L,L
-        0x6E => processor.l = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV L,(HL)
-        0x6F => processor.l = processor.a, // MOV L,A
-        
-        0x70 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.b;
-        }, // MOV (HL),B
-        0x71 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.c;
-        }, // MOV (HL),C
-        0x72 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.d;
-        }, // MOV (HL),D
-        0x73 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.e;
-        }, // MOV (HL),E
-        0x74 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.h;
-        }, // MOV (HL),H
-        0x75 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.l;
-        }, // MOV (HL),L
-        0x77 => {
-            let result = get_hl_address_pair(processor);
-            if result.is_err(){
-                return;
-            }
-            let result = result.unwrap();
-            processor.memory[result as usize] = processor.a;
-        }, // MOV (HL),A
-        
-        0x78 => processor.a = processor.b, // MOV A,B
-        0x79 => processor.a = processor.c, // MOV A,C
-        0x7A => processor.a = processor.d, // MOV A,D
-        0x7B => processor.a = processor.e, // MOV A,E
-        0x7C => processor.a = processor.h, // MOV A,H
-        0x7D => processor.a = processor.l, // MOV A,L
-        0x7E => processor.a = processor.memory[get_address_from_pair(&mut processor.h, &mut processor.l) as usize], // MOV A,(HL)
-        0x7F => processor.a = processor.a, // MOV A,A
-
-        0x06 => {
-            processor.b = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI B, D8	2		B <- byte 2
-        0x0e => {
-            processor.c = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI C,D8	2		C <- byte 2
-        0x16 => {
-            processor.d = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI D, D8	2		D <- byte 2
-        0x1e => {
-            processor.e = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI E,D8	2		E <- byte 2
-        0x26 => {
-            processor.h = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI H,D8	2		H <- byte 2
-        0x2e => {
-            processor.l = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI L, D8	2		L <- byte 2
-        0x36 => {
-            let address = get_address_from_pair(
-                &mut processor.h,
-                &mut processor.l,
-            );
-            if address < 0x2000{
-                return;
-            }
-            processor.memory[address as usize] = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI M,D8	2		(HL) <- byte 2
-        0x3e => {
-            processor.a = processor.memory[processor.program_counter as usize];
-            processor.program_counter += 1;
-        }, // MVI A,D8	2		A <- byte 2
-
-        0x0A => processor.a = processor.memory[get_address_from_pair(&mut processor.b, &mut processor.c) as usize], // LDAX B
-        0x1A => processor.a = processor.memory[get_address_from_pair(&mut processor.d, &mut processor.e) as usize], // LDAX D
-        //#endregion
-
-
-        /********************************************
-        *                 Double Add                *
-        ********************************************/
-        //#region
-        0x09 => double_add(processor, processor.b, processor.c),
-        0x19 => double_add(processor, processor.d, processor.e),
-        0x29 => double_add(processor, processor.h, processor.l),
-        0x39 => {
-            let stack_pointer_split = seperate_16bit_pair(processor.stack_pointer);
-            double_add(processor, stack_pointer_split.1, stack_pointer_split.0);
-        },
-        //#endregion
-
-
-        /********************************************
-        *                Inc Register               *
-        ********************************************/
-        //#region
-        0x04 => {
-            let answer: u16 = (processor.b as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.b = answer as u8;
-        }, // INR B
-        0x0C => {
-            let answer: u16 = (processor.c as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.c = answer as u8;
-        }, // INR C
-        0x14 => {
-            let answer: u16 = (processor.d as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.d = answer as u8;
-        }, // INR D
-        0x1C => {
-            let answer: u16 = (processor.e as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.e = answer as u8;
-        }, // INR E
-        0x24 => {
-            let answer: u16 = (processor.h as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.h = answer as u8;
-        }, // INR H
-        0x2C => {
-            let answer: u16 = (processor.l as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.l = answer as u8;
-        }, // INR L
-        0x34 => {
-            let address = get_hl_address_pair(processor);
-            if address.is_err(){
-                return;
-            }
-            let address = address.unwrap() as usize;
-            let answer: u16 = (processor.memory[address] as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.memory[address] = answer as u8;
-        }, // INR M
-        0x3C => {
-            let answer: u16 = (processor.a as u16) + 1;
-            step_register_flags(processor, answer);
-            processor.a = answer as u8;
-        }, // INR A
-        //#endregion
-
-
-        /********************************************
-        *                Dec Register               *
-        ********************************************/
-        //#region
-        0x05 => {
-            let answer: u16 = ((processor.b as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.b = answer as u8;
-        }, // DCR B
-        0x0D => {
-            let answer: u16 = ((processor.c as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.c = answer as u8;
-        }, // DCR C
-        0x15 => {
-            let answer: u16 = ((processor.d as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.d = answer as u8;
-        }, // DCR D
-        0x1D => {
-            let answer: u16 = ((processor.e as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.e = answer as u8;
-        }, // DCR E
-        0x25 => {
-            let answer: u16 = ((processor.h as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.h = answer as u8;
-        }, // DCR H
-        0x2D => {
-            let answer: u16 = ((processor.l as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.l = answer as u8;
-        }, // DCR L
-        0x35 => {
-            let address = get_hl_address_pair(processor);
-            if address.is_err(){
-                return;
-            }
-            let address = address.unwrap() as usize;
-            let answer: u16 = ((processor.memory[address] as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.memory[address] = answer as u8;
-        }, // DCR M
-        0x3D => {
-            let answer: u16 = ((processor.a as u32) + get_twos_complement(1) as u32) as u16;
-            step_register_flags(processor, answer);
-            processor.a = answer as u8;
-        }, // DCR A
-        //#endregion
-
-
-        /********************************************
-        *                  Inc Pair                 *
-        ********************************************/
-        //#region
-        0x03 => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.b, &mut processor.c) + 1);
-            processor.b = pair.0;
-            processor.c = pair.1;
-        }, // INX B
-        0x13 => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.d, &mut processor.e) + 1);
-            processor.d = pair.0;
-            processor.e = pair.1;
-        }, // INX D
-        0x23 => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.h, &mut processor.l) + 1);
-            processor.h = pair.0;
-            processor.l = pair.1;
-        }, // INX H
-        0x33 => processor.stack_pointer += 1, // INX SP
-        //#endregion
-
-
-        /********************************************
-        *                  Dec Pair                 *
-        ********************************************/
-        //#region
-        0x0B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.b, &mut processor.c) + get_twos_complement(1));
-            processor.b = pair.0;
-            processor.c = pair.1;
-        }, // DCX B
-        0x1B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.d, &mut processor.e) + get_twos_complement(1));
-            processor.d = pair.0;
-            processor.e = pair.1;
-        }, // DCX D
-        0x2B => {
-            let pair = seperate_16bit_pair(get_address_from_pair(&mut processor.h, &mut processor.l) + get_twos_complement(1));
-            processor.h = pair.0;
-            processor.l = pair.1;
-        }, // DCX H
-        0x3B => processor.stack_pointer += get_twos_complement(1), // DCX SP
-        //#endregion
-
-
-        /********************************************
-        *                 Add Opcodes               *
-        ********************************************/
-        //#region
-        0x80 => add(processor, processor.b.into(), 0), // ADD B
-        0x81 => add(processor, processor.c.into(), 0), // ADD C
-        0x82 => add(processor, processor.d.into(), 0), // ADD D
-        0x83 => add(processor, processor.e.into(), 0), // ADD E
-        0x84 => add(processor, processor.h.into(), 0), // ADD H
-        0x85 => add(processor, processor.l.into(), 0), // ADD L
-        0x86 => {
-            let address: u16 = get_address_from_pair(&mut processor.h, &mut processor.l);
-            add(processor, processor.memory[address as usize].into(), 0);
-        }, // ADD M - From memory address
-        0x87 => add(processor, processor.a.into(), 0), // ADD A
-        0x88 => add(processor, processor.b.into(), processor.c as u16), // ADC B
-        0x89 => add(processor, processor.c.into(), processor.c as u16), // ADC C
-        0x8A => add(processor, processor.d.into(), processor.c as u16), // ADC D
-        0x8B => add(processor, processor.e.into(), processor.c as u16), // ADC E
-        0x8C => add(processor, processor.h.into(), processor.c as u16), // ADC H
-        0x8D => add(processor, processor.l.into(), processor.c as u16), // ADC L
-        0x8E => {
-            let address: u16 = get_address_from_pair(&mut processor.h, &mut processor.l);
-            add(processor, processor.memory[address as usize].into(), processor.c as u16);
-        }, // ADC M - From memory address
-        0x8F => add(processor, processor.a.into(), processor.c as u16), // ADC A
-        0xC6 => {
-            add(processor, processor.memory[processor.program_counter as usize].into(), 0);
-            processor.program_counter += 1;
-        }, // ADI - Immediate
-        0xCE => {
-            add(processor, processor.memory[processor.program_counter as usize].into(), processor.c as u16);
-            processor.program_counter += 1;
-        }, // ACI - Immediate
-        //#endregion
-
-
-        /********************************************
-        *              Subtract Opcodes             *
-        ********************************************/
-        //#region
-        0x90 => subtract(processor, processor.b, 0), // SUB B
-        0x91 => subtract(processor, processor.c, 0), // SUB C
-        0x92 => subtract(processor, processor.d, 0), // SUB D
-        0x93 => subtract(processor, processor.e, 0), // SUB E
-        0x94 => subtract(processor, processor.h, 0), // SUB H
-        0x95 => subtract(processor, processor.l, 0), // SUB L
-        0x96 => {
-            let address: u16 = get_address_from_pair(&mut processor.h, &mut processor.l);
-            subtract(processor, processor.memory[address as usize], 0);
-        }, // SUB M - From memory address
-        0x97 => subtract(processor, processor.a, 0), // SUB A
-        0x98 => subtract(processor, processor.b, processor.c), // SBB B
-        0x99 => subtract(processor, processor.c, processor.c), // SBB C
-        0x9A => subtract(processor, processor.d, processor.c), // SBB D
-        0x9B => subtract(processor, processor.e, processor.c), // SBB E
-        0x9C => subtract(processor, processor.h, processor.c), // SBB H
-        0x9D => subtract(processor, processor.l, processor.c), // SBB L
-        0x9E => {
-            let address: u16 = get_address_from_pair(&mut processor.h, &mut processor.l);
-            subtract(processor, processor.memory[address as usize].into(), processor.c);
-        }, // SBB M - From memory address
-        0x9F => subtract(processor, processor.a, processor.c), // SBB A
-        0xD6 => {
-            subtract(processor, processor.memory[processor.program_counter as usize], 0);
-            processor.program_counter += 1;
-        }, // SUI - Immediate
-        0xDE => {
-            subtract(processor, processor.memory[processor.program_counter as usize], processor.c);
-            processor.program_counter += 1;
-        }, // SBI - Immediate
-        //#endregion
-
-
-        /********************************************
-        *               Stack Opcodes               *
-        ********************************************/
-        //#region
-        0xC5 => push_onto_stack(processor, processor.b, processor.c), // PUSH B
-        0xD5 => push_onto_stack(processor, processor.d, processor.e), // PUSH D
-        0xE5 => push_onto_stack(processor, processor.h, processor.l), // PUSH H
-        0xF5 => push_onto_stack(processor, processor.a, {
-            // Format: S Z 0 AC 0 P 1 C
-            let mut flags: u8 = 0b00000010;
-            if processor.flags.sign{
-                flags = flags | 0b10000000;
-            }
-            if processor.flags.zero{
-                flags = flags | 0b01000000;
-            }
-            if processor.flags.parity{
-                flags = flags | 0b00000100;
-            }
-            if processor.flags.carry{
-                flags = flags | 0b00000001;
-            }
-            flags
-        }), // PUSH PSW
-        0xC1 => {
-            processor.b = processor.memory[(processor.stack_pointer + 1) as usize];
-            processor.c = processor.memory[processor.stack_pointer as usize];
-            processor.stack_pointer += 2;
-        }, // POP B
-        0xD1 => {
-            processor.d = processor.memory[(processor.stack_pointer + 1) as usize];
-            processor.e = processor.memory[processor.stack_pointer as usize];
-            processor.stack_pointer += 2;
-        }, // POP D
-        0xE1 => {
-            processor.h = processor.memory[(processor.stack_pointer + 1) as usize];
-            processor.l = processor.memory[processor.stack_pointer as usize];
-            processor.stack_pointer += 2;
-        }, // POP H
-        0xF1 => {
-            // Format: S Z 0 AC 0 P 1 C
-            processor.a = processor.memory[(processor.stack_pointer + 1) as usize];
-            let flag_values = processor.memory[processor.stack_pointer as usize];
-            processor.flags.sign = flag_values & 0b10000000 != 0;
-            processor.flags.zero = flag_values & 0b01000000 != 0;
-            processor.flags.parity = flag_values & 0b00000100 != 0;
-            processor.flags.carry = flag_values & 0b00000001 != 0;
-            processor.stack_pointer += 2;
-        }, // POP PSW
-        0xF9 => processor.stack_pointer = get_address_from_pair(&mut processor.h, &mut processor.l), // SPHL
-        0xE3 => {
-            processor.h = processor.memory[processor.stack_pointer as usize + 1];
-            processor.l = processor.memory[processor.stack_pointer as usize];
-        }, // XTHL
-        //#endregion
-
-
-        /********************************************
-        *                Not Opcodes                *
-        ********************************************/
-        //#region
-        0x2F => processor.a = !processor.a, // CMA
-        //#endregion
-
-
-        /********************************************
-        *                   Rotate                  *
-        ********************************************/
-        //#region
-        0x07 => {
-            processor.flags.carry = (processor.a & 0x80) != 0;
-            processor.a = processor.a << 1;
-            rotate_carry_logic(processor, 0x01, 0xFE);
-        }, // RLC
-        0x0F => {
-            processor.flags.carry = (processor.a & 0x01) != 0;
-            processor.a = processor.a >> 1;
-            rotate_carry_logic(processor, 0x80, 0x7F);
-        }, // RRC
-        0x17 => {
-            rotate_carry_logic(processor, 0x01, 0xFE);
-            processor.flags.carry = (processor.a & 0x80) != 0;
-            processor.a = processor.a << 1;
-        }, // RAL
-        0x1F => {
-            rotate_carry_logic(processor, 0x80, 0x7F);
-            processor.a = processor.a >> 1;
-        }, // RAR
-        //#endregion
-
-
-        /********************************************
-        *                  Compare                  *
-        ********************************************/
-        //#region
-        0xB8 => compare(processor, processor.b), // CMP B
-        0xB9 => compare(processor, processor.c), // CMP C
-        0xBA => compare(processor, processor.d), // CMP D
-        0xBB => compare(processor, processor.e), // CMP E
-        0xBC => compare(processor, processor.h), // CMP H
-        0xBD => compare(processor, processor.l), // CMP L
-        0xBE => {
-            let address = get_address_from_pair(&mut processor.h, &mut processor.l);
-            compare(processor, processor.memory[address as usize])
-        }, // CMP M
-        0xBF => compare(processor, processor.a), // CMP A
-        0xFE => {
-            compare(processor, processor.memory[processor.program_counter as usize]);
-            processor.program_counter += 1;
-        }, // CPI data
-        //#endregion
-
-
-        /********************************************
-        *                   Carry                   *
-        ********************************************/
-        //#region
-        0x37 => processor.flags.carry = true, // CMC
-        0x3F => processor.flags.carry = !processor.flags.carry, // STC
-        //#endregion
-
-
-        /********************************************
-        *                And Opcodes                *
-        ********************************************/
-        //#region
-        0xA0 => logical(processor, processor.b, |x,y| (x&y) as u16), // ANA B
-        0xA1 => logical(processor, processor.c, |x,y| (x&y) as u16), // ANA C
-        0xA2 => logical(processor, processor.d, |x,y| (x&y) as u16), // ANA D
-        0xA3 => logical(processor, processor.e, |x,y| (x&y) as u16), // ANA E
-        0xA4 => logical(processor, processor.h, |x,y| (x&y) as u16), // ANA H
-        0xA5 => logical(processor, processor.l, |x,y| (x&y) as u16), // ANA L
-        0xA6 => {
-            let address = get_address_from_pair(&mut processor.h, &mut processor.l);
-            logical(processor, processor.memory[address as usize], |x,y| (x&y) as u16)
-        }, // ANA M
-        0xA7 => logical(processor, processor.a, |x,y| (x&y) as u16), // ANA A
-        0xE6 => {
-            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x&y) as u16);
-            processor.program_counter += 1;
-        }, // ANI
-        //#endregion
-
-
-        /********************************************
-        *                 Or Opcodes                *
-        ********************************************/
-        //#region
-        0xB0 => logical(processor, processor.b, |x,y| (x|y) as u16), // ORA B
-        0xB1 => logical(processor, processor.c, |x,y| (x|y) as u16), // ORA C
-        0xB2 => logical(processor, processor.d, |x,y| (x|y) as u16), // ORA D
-        0xB3 => logical(processor, processor.e, |x,y| (x|y) as u16), // ORA E
-        0xB4 => logical(processor, processor.h, |x,y| (x|y) as u16), // ORA H
-        0xB5 => logical(processor, processor.l, |x,y| (x|y) as u16), // ORA L
-        0xB6 => {
-            let address = get_address_from_pair(&mut processor.h, &mut processor.l);
-            logical(processor, processor.memory[address as usize], |x,y| (x|y) as u16)
-        }, // ORA M
-        0xB7 => logical(processor, processor.a, |x,y| (x|y) as u16),  // ORA A
-        0xF6 => {
-            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x|y) as u16);
-            processor.program_counter += 1;
-        }, // ORI
-        //#endregion
-
-
-        /********************************************
-        *                XOR Opcodes                *
-        ********************************************/
-        //#region
-        0xA8 => logical(processor, processor.b, |x,y| (x^y) as u16), // XRA B
-        0xA9 => logical(processor, processor.c, |x,y| (x^y) as u16), // XRA C
-        0xAA => logical(processor, processor.d, |x,y| (x^y) as u16), // XRA D
-        0xAB => logical(processor, processor.e, |x,y| (x^y) as u16), // XRA E
-        0xAC => logical(processor, processor.h, |x,y| (x^y) as u16), // XRA H
-        0xAD => logical(processor, processor.l, |x,y| (x^y) as u16), // XRA L
-        0xAE => {
-            let address = get_address_from_pair(&mut processor.h, &mut processor.l);
-            logical(processor, processor.memory[address as usize], |x,y| (x^y) as u16)
-        },  // XRA M
-        0xAF => logical(processor, processor.a, |x,y| (x^y) as u16), // XRA A
-        0xEE => {
-            logical(processor, processor.memory[processor.program_counter as usize], |x,y| (x^y) as u16);
-            processor.program_counter += 1;
-        }, // XRI
-        //#endregion
-
-
-        /********************************************
-        *               Return Opcodes              *
-        ********************************************/
-        //#region
-        0xC9 => ret(processor, true), // RET
-        0xC0 => ret(processor, !processor.flags.zero), // RNZ addr
-        0xC8 => ret(processor, processor.flags.zero), // RZ addr
-        0xD0 => ret(processor, !processor.flags.carry), // RNC addr
-        0xD8 => ret(processor, processor.flags.carry), // RC addr
-        0xE0 => ret(processor, !processor.flags.parity), // RPO addr - Parity odd
-        0xE8 => ret(processor, processor.flags.parity), // RPE addr - Parity even
-        0xF0 => ret(processor, !processor.flags.sign), // RP addr - Positive
-        0xF8 => ret(processor, processor.flags.sign), // RM addr - Minus
-        //#endregion
-
-
-        /********************************************
-        *                RST Restart                *
-        ********************************************/
-        //#region
-        0xC7 => reset(processor, 0), // RST 0
-        0xCF => reset(processor, 8), // RST 1
-        0xD7 => reset(processor, 10), // RST 2
-        0xDF => reset(processor, 18), // RST 3
-        0xE7 => reset(processor, 20), // RST 4
-        0xEF => reset(processor, 28), // RST 5
-        0xF7 => reset(processor, 30), // RST 6
-        0xFF => reset(processor, 30), // RST 7
-        //#endregion
-
-
-        /********************************************
-        *                Call Opcodes               *
-        ********************************************/
-        //#region
-        0xCD => {
-            if processor.testing{
-                let addr = ((processor.memory[(processor.program_counter + 1) as usize] as u16) << 8) | (processor.memory[processor.program_counter as usize] as u16);
-                if addr == 5{
-                    if processor.c == 9{
-                        let mut offset: u16 = ((processor.d as u16) << 8) | (processor.e as u16);
-                        let mut letter = processor.memory[(offset + 3) as usize] as char;
-                        let mut string: String = "".to_string();
-                        while letter != '$'{
-                            string += &letter.to_string();
-                            offset += 1;
-                            letter = processor.memory[(offset + 3) as usize] as char;
-                        }
-                        if string != " CPU HAS FAILED! ERROR EXIT="{
-                            println!("{}", string);
+            
+            write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter);
+    
+            write!(self.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", self.stack_pointer);
+    
+        }
+    
+        self.program_counter += 1;
+    
+        match opcode {
+    
+            /********************************************
+            *                  Special                  *
+            ********************************************/
+            //#region
+            0x00 => {}, // NOP
+            0xF3 => self.interrupt_enabled = false, // DI
+            0xFB => self.interrupt_enabled = true, // EI
+            0xD3 => (self.output_handler)(self, self.memory[self.program_counter as usize], self.a), // OUT
+            0xDB => self.a = (self.input_handler)(self, self.memory[self.program_counter as usize]), // IN
+            0x27 => {}, // DAA
+            0x76 => panic!("Halting"), // HLT
+            //#endregion
+    
+    
+            /********************************************
+            *               Store Register              *
+            ********************************************/
+            //#region
+            0x02 => {
+                let address = get_address_from_pair(
+                    &mut self.b,
+                    &mut self.c,
+                );
+                if address < 0x2000{
+                    return;
+                }
+                self.memory[address as usize] = self.a;
+            }, // STAX B
+            0x12 => {
+                let address = get_address_from_pair(
+                    &mut self.d,
+                    &mut self.e,
+                );
+                if address < 0x2000{
+                    return;
+                }
+                self.memory[address as usize] = self.a;
+            }, // STAX D
+            0x32 => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(
+                    &mut first_byte,
+                    &mut second_byte,
+                );
+                if address < 0x2000{
+                    return;
+                }
+                self.memory[address as usize] = self.a;
+                self.program_counter += 2;
+            }, // STA addr
+            0x22 => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(
+                    &mut first_byte,
+                    &mut second_byte,
+                );
+                if address + 1 < 0x2000{
+                    return;
+                }
+                self.memory[address as usize] = self.l;
+                self.memory[(address + 1) as usize] = self.h;
+                self.program_counter += 2;
+            }, // SHLD addr
+            0xEB => {
+                mem::swap(&mut self.h, &mut self.d);
+                mem::swap(&mut self.l, &mut self.e);
+            }, // XCHG
+            //endregion
+    
+    
+            /********************************************
+            *               Load Register               *
+            ********************************************/
+            //#region
+            0x01 => {
+                self.b = self.memory[(self.program_counter + 1) as usize];
+                self.c = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI B,operand
+            0x11 => {
+                self.d = self.memory[(self.program_counter + 1) as usize];
+                self.e = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI D,operand
+            0x21 => {
+                self.h = self.memory[(self.program_counter + 1) as usize];
+                self.l = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI H,operand
+            0x31 => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                self.stack_pointer = address;
+                self.program_counter += 2;
+            }, // LXI SP,operand
+            0x3A => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                self.a = self.memory[address as usize];
+                self.program_counter += 2;
+            }, // LDA addr
+            0x2A => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                self.l = self.memory[address as usize];
+                self.h = self.memory[(address + 1) as usize];
+            }, // LHLD addr
+            //#endregion
+    
+    
+            /********************************************
+            *                Move Opcodes               *
+            ********************************************/
+            //#region
+            0x40 => self.b = self.b, // MOV B,B
+            0x41 => self.b = self.c, // MOV B,C
+            0x42 => self.b = self.d, // MOV B,D
+            0x43 => self.b = self.e, // MOV B,E
+            0x44 => self.b = self.h, // MOV B,H
+            0x45 => self.b = self.l, // MOV B,L
+            0x46 => self.b = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV B,(HL)
+            0x47 => self.b = self.a, // MOV B,A
+    
+            0x48 => self.c = self.b, // MOV C,B
+            0x49 => self.c = self.c, // MOV C,C
+            0x4A => self.c = self.d, // MOV C,D
+            0x4B => self.c = self.e, // MOV C,E
+            0x4C => self.c = self.h, // MOV C,H
+            0x4D => self.c = self.l, // MOV C,L
+            0x4E => self.c = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV D,(HL)
+            0x4F => self.c = self.a, // MOV C,A
+    
+            0x50 => self.d = self.b, // MOV D,B
+            0x51 => self.d = self.c, // MOV D,C
+            0x52 => self.d = self.d, // MOV D,D
+            0x53 => self.d = self.e, // MOV D,E
+            0x54 => self.d = self.h, // MOV D,H
+            0x55 => self.d = self.l, // MOV D,L
+            0x56 => self.d = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV D(HL)
+            0x57 => self.d = self.a, // MOV D,A
+    
+            0x58 => self.e = self.b, // MOV E,B
+            0x59 => self.e = self.c, // MOV E,C
+            0x5A => self.e = self.d, // MOV E,D
+            0x5B => self.e = self.e, // MOV E,E
+            0x5C => self.e = self.h, // MOV E,H
+            0x5D => self.e = self.l, // MOV E,L
+            0x5E => self.e = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV E,(HL)
+            0x5F => self.e = self.a, // MOV E,A
+            
+            0x60 => self.h = self.b, // MOV H,B
+            0x61 => self.h = self.c, // MOV H,C
+            0x62 => self.h = self.d, // MOV H,D
+            0x63 => self.h = self.e, // MOV H,E
+            0x64 => self.h = self.h, // MOV H,H
+            0x65 => self.h = self.l, // MOV H,L
+            0x66 => self.h = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV H,(HL)
+            0x67 => self.h = self.a, // MOV H,A
+            
+            0x68 => self.l = self.b, // MOV L,B
+            0x69 => self.l = self.c, // MOV L,C
+            0x6A => self.l = self.d, // MOV L,D
+            0x6B => self.l = self.e, // MOV L,E
+            0x6C => self.l = self.h, // MOV L,H
+            0x6D => self.l = self.l, // MOV L,L
+            0x6E => self.l = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV L,(HL)
+            0x6F => self.l = self.a, // MOV L,A
+            
+            0x70 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.b;
+            }, // MOV (HL),B
+            0x71 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.c;
+            }, // MOV (HL),C
+            0x72 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.d;
+            }, // MOV (HL),D
+            0x73 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.e;
+            }, // MOV (HL),E
+            0x74 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.h;
+            }, // MOV (HL),H
+            0x75 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.l;
+            }, // MOV (HL),L
+            0x77 => {
+                let result = get_hl_address_pair(self);
+                if result.is_err(){
+                    return;
+                }
+                let result = result.unwrap();
+                self.memory[result as usize] = self.a;
+            }, // MOV (HL),A
+            
+            0x78 => self.a = self.b, // MOV A,B
+            0x79 => self.a = self.c, // MOV A,C
+            0x7A => self.a = self.d, // MOV A,D
+            0x7B => self.a = self.e, // MOV A,E
+            0x7C => self.a = self.h, // MOV A,H
+            0x7D => self.a = self.l, // MOV A,L
+            0x7E => self.a = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV A,(HL)
+            0x7F => self.a = self.a, // MOV A,A
+    
+            0x06 => {
+                self.b = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI B, D8	2		B <- byte 2
+            0x0e => {
+                self.c = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI C,D8	2		C <- byte 2
+            0x16 => {
+                self.d = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI D, D8	2		D <- byte 2
+            0x1e => {
+                self.e = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI E,D8	2		E <- byte 2
+            0x26 => {
+                self.h = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI H,D8	2		H <- byte 2
+            0x2e => {
+                self.l = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI L, D8	2		L <- byte 2
+            0x36 => {
+                let address = get_address_from_pair(
+                    &mut self.h,
+                    &mut self.l,
+                );
+                if address < 0x2000{
+                    return;
+                }
+                self.memory[address as usize] = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI M,D8	2		(HL) <- byte 2
+            0x3e => {
+                self.a = self.memory[self.program_counter as usize];
+                self.program_counter += 1;
+            }, // MVI A,D8	2		A <- byte 2
+    
+            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c) as usize], // LDAX B
+            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e) as usize], // LDAX D
+            //#endregion
+    
+    
+            /********************************************
+            *                 Double Add                *
+            ********************************************/
+            //#region
+            0x09 => double_add(self, self.b, self.c),
+            0x19 => double_add(self, self.d, self.e),
+            0x29 => double_add(self, self.h, self.l),
+            0x39 => {
+                let stack_pointer_split = seperate_16bit_pair(self.stack_pointer);
+                double_add(self, stack_pointer_split.1, stack_pointer_split.0);
+            },
+            //#endregion
+    
+    
+            /********************************************
+            *                Inc Register               *
+            ********************************************/
+            //#region
+            0x04 => {
+                let answer: u16 = (self.b as u16) + 1;
+                step_register_flags(self, answer);
+                self.b = answer as u8;
+            }, // INR B
+            0x0C => {
+                let answer: u16 = (self.c as u16) + 1;
+                step_register_flags(self, answer);
+                self.c = answer as u8;
+            }, // INR C
+            0x14 => {
+                let answer: u16 = (self.d as u16) + 1;
+                step_register_flags(self, answer);
+                self.d = answer as u8;
+            }, // INR D
+            0x1C => {
+                let answer: u16 = (self.e as u16) + 1;
+                step_register_flags(self, answer);
+                self.e = answer as u8;
+            }, // INR E
+            0x24 => {
+                let answer: u16 = (self.h as u16) + 1;
+                step_register_flags(self, answer);
+                self.h = answer as u8;
+            }, // INR H
+            0x2C => {
+                let answer: u16 = (self.l as u16) + 1;
+                step_register_flags(self, answer);
+                self.l = answer as u8;
+            }, // INR L
+            0x34 => {
+                let address = get_hl_address_pair(self);
+                if address.is_err(){
+                    return;
+                }
+                let address = address.unwrap() as usize;
+                let answer: u16 = (self.memory[address] as u16) + 1;
+                step_register_flags(self, answer);
+                self.memory[address] = answer as u8;
+            }, // INR M
+            0x3C => {
+                let answer: u16 = (self.a as u16) + 1;
+                step_register_flags(self, answer);
+                self.a = answer as u8;
+            }, // INR A
+            //#endregion
+    
+    
+            /********************************************
+            *                Dec Register               *
+            ********************************************/
+            //#region
+            0x05 => {
+                let answer: u16 = ((self.b as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.b = answer as u8;
+            }, // DCR B
+            0x0D => {
+                let answer: u16 = ((self.c as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.c = answer as u8;
+            }, // DCR C
+            0x15 => {
+                let answer: u16 = ((self.d as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.d = answer as u8;
+            }, // DCR D
+            0x1D => {
+                let answer: u16 = ((self.e as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.e = answer as u8;
+            }, // DCR E
+            0x25 => {
+                let answer: u16 = ((self.h as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.h = answer as u8;
+            }, // DCR H
+            0x2D => {
+                let answer: u16 = ((self.l as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.l = answer as u8;
+            }, // DCR L
+            0x35 => {
+                let address = get_hl_address_pair(self);
+                if address.is_err(){
+                    return;
+                }
+                let address = address.unwrap() as usize;
+                let answer: u16 = ((self.memory[address] as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.memory[address] = answer as u8;
+            }, // DCR M
+            0x3D => {
+                let answer: u16 = ((self.a as u32) + get_twos_complement(1) as u32) as u16;
+                step_register_flags(self, answer);
+                self.a = answer as u8;
+            }, // DCR A
+            //#endregion
+    
+    
+            /********************************************
+            *                  Inc Pair                 *
+            ********************************************/
+            //#region
+            0x03 => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.b, &mut self.c) + 1);
+                self.b = pair.0;
+                self.c = pair.1;
+            }, // INX B
+            0x13 => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.d, &mut self.e) + 1);
+                self.d = pair.0;
+                self.e = pair.1;
+            }, // INX D
+            0x23 => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.h, &mut self.l) + 1);
+                self.h = pair.0;
+                self.l = pair.1;
+            }, // INX H
+            0x33 => self.stack_pointer += 1, // INX SP
+            //#endregion
+    
+    
+            /********************************************
+            *                  Dec Pair                 *
+            ********************************************/
+            //#region
+            0x0B => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.b, &mut self.c) + get_twos_complement(1));
+                self.b = pair.0;
+                self.c = pair.1;
+            }, // DCX B
+            0x1B => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.d, &mut self.e) + get_twos_complement(1));
+                self.d = pair.0;
+                self.e = pair.1;
+            }, // DCX D
+            0x2B => {
+                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.h, &mut self.l) + get_twos_complement(1));
+                self.h = pair.0;
+                self.l = pair.1;
+            }, // DCX H
+            0x3B => self.stack_pointer += get_twos_complement(1), // DCX SP
+            //#endregion
+    
+    
+            /********************************************
+            *                 Add Opcodes               *
+            ********************************************/
+            //#region
+            0x80 => add(self, self.b.into(), 0), // ADD B
+            0x81 => add(self, self.c.into(), 0), // ADD C
+            0x82 => add(self, self.d.into(), 0), // ADD D
+            0x83 => add(self, self.e.into(), 0), // ADD E
+            0x84 => add(self, self.h.into(), 0), // ADD H
+            0x85 => add(self, self.l.into(), 0), // ADD L
+            0x86 => {
+                let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
+                add(self, self.memory[address as usize].into(), 0);
+            }, // ADD M - From memory address
+            0x87 => add(self, self.a.into(), 0), // ADD A
+            0x88 => add(self, self.b.into(), self.c as u16), // ADC B
+            0x89 => add(self, self.c.into(), self.c as u16), // ADC C
+            0x8A => add(self, self.d.into(), self.c as u16), // ADC D
+            0x8B => add(self, self.e.into(), self.c as u16), // ADC E
+            0x8C => add(self, self.h.into(), self.c as u16), // ADC H
+            0x8D => add(self, self.l.into(), self.c as u16), // ADC L
+            0x8E => {
+                let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
+                add(self, self.memory[address as usize].into(), self.c as u16);
+            }, // ADC M - From memory address
+            0x8F => add(self, self.a.into(), self.c as u16), // ADC A
+            0xC6 => {
+                add(self, self.memory[self.program_counter as usize].into(), 0);
+                self.program_counter += 1;
+            }, // ADI - Immediate
+            0xCE => {
+                add(self, self.memory[self.program_counter as usize].into(), self.c as u16);
+                self.program_counter += 1;
+            }, // ACI - Immediate
+            //#endregion
+    
+    
+            /********************************************
+            *              Subtract Opcodes             *
+            ********************************************/
+            //#region
+            0x90 => subtract(self, self.b, 0), // SUB B
+            0x91 => subtract(self, self.c, 0), // SUB C
+            0x92 => subtract(self, self.d, 0), // SUB D
+            0x93 => subtract(self, self.e, 0), // SUB E
+            0x94 => subtract(self, self.h, 0), // SUB H
+            0x95 => subtract(self, self.l, 0), // SUB L
+            0x96 => {
+                let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
+                subtract(self, self.memory[address as usize], 0);
+            }, // SUB M - From memory address
+            0x97 => subtract(self, self.a, 0), // SUB A
+            0x98 => subtract(self, self.b, self.c), // SBB B
+            0x99 => subtract(self, self.c, self.c), // SBB C
+            0x9A => subtract(self, self.d, self.c), // SBB D
+            0x9B => subtract(self, self.e, self.c), // SBB E
+            0x9C => subtract(self, self.h, self.c), // SBB H
+            0x9D => subtract(self, self.l, self.c), // SBB L
+            0x9E => {
+                let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
+                subtract(self, self.memory[address as usize].into(), self.c);
+            }, // SBB M - From memory address
+            0x9F => subtract(self, self.a, self.c), // SBB A
+            0xD6 => {
+                subtract(self, self.memory[self.program_counter as usize], 0);
+                self.program_counter += 1;
+            }, // SUI - Immediate
+            0xDE => {
+                subtract(self, self.memory[self.program_counter as usize], self.c);
+                self.program_counter += 1;
+            }, // SBI - Immediate
+            //#endregion
+    
+    
+            /********************************************
+            *               Stack Opcodes               *
+            ********************************************/
+            //#region
+            0xC5 => push_onto_stack(self, self.b, self.c), // PUSH B
+            0xD5 => push_onto_stack(self, self.d, self.e), // PUSH D
+            0xE5 => push_onto_stack(self, self.h, self.l), // PUSH H
+            0xF5 => push_onto_stack(self, self.a, {
+                // Format: S Z 0 AC 0 P 1 C
+                let mut flags: u8 = 0b00000010;
+                if self.flags.sign{
+                    flags = flags | 0b10000000;
+                }
+                if self.flags.zero{
+                    flags = flags | 0b01000000;
+                }
+                if self.flags.parity{
+                    flags = flags | 0b00000100;
+                }
+                if self.flags.carry{
+                    flags = flags | 0b00000001;
+                }
+                flags
+            }), // PUSH PSW
+            0xC1 => {
+                self.b = self.memory[(self.stack_pointer + 1) as usize];
+                self.c = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP B
+            0xD1 => {
+                self.d = self.memory[(self.stack_pointer + 1) as usize];
+                self.e = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP D
+            0xE1 => {
+                self.h = self.memory[(self.stack_pointer + 1) as usize];
+                self.l = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP H
+            0xF1 => {
+                // Format: S Z 0 AC 0 P 1 C
+                self.a = self.memory[(self.stack_pointer + 1) as usize];
+                let flag_values = self.memory[self.stack_pointer as usize];
+                self.flags.sign = flag_values & 0b10000000 != 0;
+                self.flags.zero = flag_values & 0b01000000 != 0;
+                self.flags.parity = flag_values & 0b00000100 != 0;
+                self.flags.carry = flag_values & 0b00000001 != 0;
+                self.stack_pointer += 2;
+            }, // POP PSW
+            0xF9 => self.stack_pointer = get_address_from_pair(&mut self.h, &mut self.l), // SPHL
+            0xE3 => {
+                self.h = self.memory[self.stack_pointer as usize + 1];
+                self.l = self.memory[self.stack_pointer as usize];
+            }, // XTHL
+            //#endregion
+    
+    
+            /********************************************
+            *                Not Opcodes                *
+            ********************************************/
+            //#region
+            0x2F => self.a = !self.a, // CMA
+            //#endregion
+    
+    
+            /********************************************
+            *                   Rotate                  *
+            ********************************************/
+            //#region
+            0x07 => {
+                self.flags.carry = (self.a & 0x80) != 0;
+                self.a = self.a << 1;
+                rotate_carry_logic(self, 0x01, 0xFE);
+            }, // RLC
+            0x0F => {
+                self.flags.carry = (self.a & 0x01) != 0;
+                self.a = self.a >> 1;
+                rotate_carry_logic(self, 0x80, 0x7F);
+            }, // RRC
+            0x17 => {
+                rotate_carry_logic(self, 0x01, 0xFE);
+                self.flags.carry = (self.a & 0x80) != 0;
+                self.a = self.a << 1;
+            }, // RAL
+            0x1F => {
+                rotate_carry_logic(self, 0x80, 0x7F);
+                self.a = self.a >> 1;
+            }, // RAR
+            //#endregion
+    
+    
+            /********************************************
+            *                  Compare                  *
+            ********************************************/
+            //#region
+            0xB8 => compare(self, self.b), // CMP B
+            0xB9 => compare(self, self.c), // CMP C
+            0xBA => compare(self, self.d), // CMP D
+            0xBB => compare(self, self.e), // CMP E
+            0xBC => compare(self, self.h), // CMP H
+            0xBD => compare(self, self.l), // CMP L
+            0xBE => {
+                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                compare(self, self.memory[address as usize])
+            }, // CMP M
+            0xBF => compare(self, self.a), // CMP A
+            0xFE => {
+                compare(self, self.memory[self.program_counter as usize]);
+                self.program_counter += 1;
+            }, // CPI data
+            //#endregion
+    
+    
+            /********************************************
+            *                   Carry                   *
+            ********************************************/
+            //#region
+            0x37 => self.flags.carry = true, // CMC
+            0x3F => self.flags.carry = !self.flags.carry, // STC
+            //#endregion
+    
+    
+            /********************************************
+            *                And Opcodes                *
+            ********************************************/
+            //#region
+            0xA0 => logical(self, self.b, |x,y| (x&y) as u16), // ANA B
+            0xA1 => logical(self, self.c, |x,y| (x&y) as u16), // ANA C
+            0xA2 => logical(self, self.d, |x,y| (x&y) as u16), // ANA D
+            0xA3 => logical(self, self.e, |x,y| (x&y) as u16), // ANA E
+            0xA4 => logical(self, self.h, |x,y| (x&y) as u16), // ANA H
+            0xA5 => logical(self, self.l, |x,y| (x&y) as u16), // ANA L
+            0xA6 => {
+                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                logical(self, self.memory[address as usize], |x,y| (x&y) as u16)
+            }, // ANA M
+            0xA7 => logical(self, self.a, |x,y| (x&y) as u16), // ANA A
+            0xE6 => {
+                logical(self, self.memory[self.program_counter as usize], |x,y| (x&y) as u16);
+                self.program_counter += 1;
+            }, // ANI
+            //#endregion
+    
+    
+            /********************************************
+            *                 Or Opcodes                *
+            ********************************************/
+            //#region
+            0xB0 => logical(self, self.b, |x,y| (x|y) as u16), // ORA B
+            0xB1 => logical(self, self.c, |x,y| (x|y) as u16), // ORA C
+            0xB2 => logical(self, self.d, |x,y| (x|y) as u16), // ORA D
+            0xB3 => logical(self, self.e, |x,y| (x|y) as u16), // ORA E
+            0xB4 => logical(self, self.h, |x,y| (x|y) as u16), // ORA H
+            0xB5 => logical(self, self.l, |x,y| (x|y) as u16), // ORA L
+            0xB6 => {
+                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                logical(self, self.memory[address as usize], |x,y| (x|y) as u16)
+            }, // ORA M
+            0xB7 => logical(self, self.a, |x,y| (x|y) as u16),  // ORA A
+            0xF6 => {
+                logical(self, self.memory[self.program_counter as usize], |x,y| (x|y) as u16);
+                self.program_counter += 1;
+            }, // ORI
+            //#endregion
+    
+    
+            /********************************************
+            *                XOR Opcodes                *
+            ********************************************/
+            //#region
+            0xA8 => logical(self, self.b, |x,y| (x^y) as u16), // XRA B
+            0xA9 => logical(self, self.c, |x,y| (x^y) as u16), // XRA C
+            0xAA => logical(self, self.d, |x,y| (x^y) as u16), // XRA D
+            0xAB => logical(self, self.e, |x,y| (x^y) as u16), // XRA E
+            0xAC => logical(self, self.h, |x,y| (x^y) as u16), // XRA H
+            0xAD => logical(self, self.l, |x,y| (x^y) as u16), // XRA L
+            0xAE => {
+                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                logical(self, self.memory[address as usize], |x,y| (x^y) as u16)
+            },  // XRA M
+            0xAF => logical(self, self.a, |x,y| (x^y) as u16), // XRA A
+            0xEE => {
+                logical(self, self.memory[self.program_counter as usize], |x,y| (x^y) as u16);
+                self.program_counter += 1;
+            }, // XRI
+            //#endregion
+    
+    
+            /********************************************
+            *               Return Opcodes              *
+            ********************************************/
+            //#region
+            0xC9 => ret(self, true), // RET
+            0xC0 => ret(self, !self.flags.zero), // RNZ addr
+            0xC8 => ret(self, self.flags.zero), // RZ addr
+            0xD0 => ret(self, !self.flags.carry), // RNC addr
+            0xD8 => ret(self, self.flags.carry), // RC addr
+            0xE0 => ret(self, !self.flags.parity), // RPO addr - Parity odd
+            0xE8 => ret(self, self.flags.parity), // RPE addr - Parity even
+            0xF0 => ret(self, !self.flags.sign), // RP addr - Positive
+            0xF8 => ret(self, self.flags.sign), // RM addr - Minus
+            //#endregion
+    
+    
+            /********************************************
+            *                RST Restart                *
+            ********************************************/
+            //#region
+            0xC7 => reset(self, 0), // RST 0
+            0xCF => reset(self, 8), // RST 1
+            0xD7 => reset(self, 10), // RST 2
+            0xDF => reset(self, 18), // RST 3
+            0xE7 => reset(self, 20), // RST 4
+            0xEF => reset(self, 28), // RST 5
+            0xF7 => reset(self, 30), // RST 6
+            0xFF => reset(self, 30), // RST 7
+            //#endregion
+    
+    
+            /********************************************
+            *                Call Opcodes               *
+            ********************************************/
+            //#region
+            0xCD => {
+                if self.testing{
+                    let addr = ((self.memory[(self.program_counter + 1) as usize] as u16) << 8) | (self.memory[self.program_counter as usize] as u16);
+                    if addr == 5{
+                        if self.c == 9{
+                            let mut offset: u16 = ((self.d as u16) << 8) | (self.e as u16);
+                            let mut letter = self.memory[(offset + 3) as usize] as char;
+                            let mut string: String = "".to_string();
+                            while letter != '$'{
+                                string += &letter.to_string();
+                                offset += 1;
+                                letter = self.memory[(offset + 3) as usize] as char;
+                            }
+                            if string != " CPU HAS FAILED! ERROR EXIT="{
+                                println!("{}", string);
+                            }
                         }
                     }
-                }
-                else if addr == 0{
-                    panic!("Just exiting");
+                    else if addr == 0{
+                        panic!("Just exiting");
+                    }
+                    else{
+                        call(self, true);
+                    }
                 }
                 else{
-                    call(processor, true);
+                    call(self, true);
                 }
-            }
-            else{
-                call(processor, true);
-            }
-        }, // CALL addr
-        0xC4 => call(processor, processor.flags.zero), // CNZ addr - If the zero bit is one
-        0xCC => call(processor, !processor.flags.zero), // CZ addr - If the zero bit is zero
-        0xD4 => call(processor, !processor.flags.carry), // CNC addr
-        0xDC => call(processor, processor.flags.carry), // CC addr
-        0xE4 => call(processor, !processor.flags.parity), // CPO addr - Parity odd
-        0xEC => call(processor, processor.flags.parity), // CPE addr - Parity even
-        0xF4 => call(processor, !processor.flags.sign), // CP addr - Positive
-        0xFC => call(processor, processor.flags.sign), // CM addr - Minus
-        //#endregion
-
-
-        /********************************************
-        *                Jump Opcodes               *
-        ********************************************/
-        //#region
-        0xC3 => jump(processor, true), // JMP addr
-        0xC2 => jump(processor, !processor.flags.zero), // JNZ addr - If the zero bit is zero
-        0xCA => jump(processor, processor.flags.zero), // JZ addr - If the zero bit is one
-        0xD2 => jump(processor, !processor.flags.carry), // JNC addr
-        0xDA => jump(processor, processor.flags.carry), // JC addr
-        0xE2 => jump(processor, !processor.flags.parity), // JPO addr - Parity odd
-        0xEA => jump(processor, processor.flags.parity), // JPE addr - Parity even
-        0xF2 => jump(processor, !processor.flags.sign), // JP addr - Positive
-        0xFA => jump(processor, processor.flags.sign), // JM addr - Minus
-        0xE9 => processor.program_counter = get_address_from_pair(&mut processor.h, &mut processor.l),
-        //#endregion
-
-        _ => unimplemented_opcode(),
-
-    }
-
-    if processor.stack_pointer < processor.rom_size { // Ensuring ROM is not overwritten
-
-        processor.stack_pointer = 0;
-
-    }
-
-    if processor.program_counter >= 0x4000{ // Preventing the program from trying to read outside the size of memory
-
-        processor.program_counter = 0;
-
+            }, // CALL addr
+            0xC4 => call(self, self.flags.zero), // CNZ addr - If the zero bit is one
+            0xCC => call(self, !self.flags.zero), // CZ addr - If the zero bit is zero
+            0xD4 => call(self, !self.flags.carry), // CNC addr
+            0xDC => call(self, self.flags.carry), // CC addr
+            0xE4 => call(self, !self.flags.parity), // CPO addr - Parity odd
+            0xEC => call(self, self.flags.parity), // CPE addr - Parity even
+            0xF4 => call(self, !self.flags.sign), // CP addr - Positive
+            0xFC => call(self, self.flags.sign), // CM addr - Minus
+            //#endregion
+    
+    
+            /********************************************
+            *                Jump Opcodes               *
+            ********************************************/
+            //#region
+            0xC3 => jump(self, true), // JMP addr
+            0xC2 => jump(self, !self.flags.zero), // JNZ addr - If the zero bit is zero
+            0xCA => jump(self, self.flags.zero), // JZ addr - If the zero bit is one
+            0xD2 => jump(self, !self.flags.carry), // JNC addr
+            0xDA => jump(self, self.flags.carry), // JC addr
+            0xE2 => jump(self, !self.flags.parity), // JPO addr - Parity odd
+            0xEA => jump(self, self.flags.parity), // JPE addr - Parity even
+            0xF2 => jump(self, !self.flags.sign), // JP addr - Positive
+            0xFA => jump(self, self.flags.sign), // JM addr - Minus
+            0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l),
+            //#endregion
+    
+            _ => unimplemented_opcode(),
+    
+        }
+    
+        if self.stack_pointer < self.rom_size { // Ensuring ROM is not overwritten
+    
+            self.stack_pointer = 0;
+    
+        }
+    
+        if self.program_counter >= 0x4000{ // Preventing the program from trying to read outside the size of memory
+    
+            self.program_counter = 0;
+    
+        }
+    
     }
 
 }
-
 
 
 
