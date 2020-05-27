@@ -31,14 +31,18 @@ pub struct Processor8080{
     
     stack_pointer: u16,
     program_counter: u16,
+    pub cycles_elapsed: u16,
 
-    memory: Vec<u8>,
+    pub memory: Vec<u8>,
 
     flags: Flags,
 
     pub interrupt_enabled: bool,
+    pub interrupt_value: u8,
 
     rom_size: u16,
+
+    opcode_cycle_length: [u16; 256],
 
     input_handler: fn(&mut Self, u8) -> u8,
     output_handler: fn(&mut Self, u8, u8),
@@ -80,14 +84,37 @@ impl Processor8080{
             a: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0,
             custom_registers: vec![],
             stack_pointer: 0, program_counter: 0,
+            cycles_elapsed: 0,
             memory: vec![],
             flags: Default::default(),
             interrupt_enabled: false,
+            interrupt_value: 1,
             rom_size: 0,
             input_handler: input_handler,
             output_handler: output_handler,
             testing: false,
             logger: logger,
+
+            opcode_cycle_length: 
+                [
+                //  0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
+                    4,  10, 7,  5,  5,  5,  7,  4,  4,  10, 7,  5,  5,  5,  7,  4,  // 0
+                    4,  10, 7,  5,  5,  5,  7,  4,  4,  10, 7,  5,  5,  5,  7,  4,  // 1
+                    4,  10, 16, 5,  5,  5,  7,  4,  4,  10, 16, 5,  5,  5,  7,  4,  // 2
+                    4,  10, 13, 5,  10, 10, 10, 4,  4,  10, 13, 5,  5,  5,  7,  4,  // 3
+                    5,  5,  5,  5,  5,  5,  7,  5,  5,  5,  5,  5,  5,  5,  7,  5,  // 4
+                    5,  5,  5,  5,  5,  5,  7,  5,  5,  5,  5,  5,  5,  5,  7,  5,  // 5
+                    5,  5,  5,  5,  5,  5,  7,  5,  5,  5,  5,  5,  5,  5,  7,  5,  // 6
+                    7,  7,  7,  7,  7,  7,  7,  7,  5,  5,  5,  5,  5,  5,  7,  5,  // 7
+                    4,  4,  4,  4,  4,  4,  7,  4,  4,  4,  4,  4,  4,  4,  7,  4,  // 8
+                    4,  4,  4,  4,  4,  4,  7,  4,  4,  4,  4,  4,  4,  4,  7,  4,  // 9
+                    4,  4,  4,  4,  4,  4,  7,  4,  4,  4,  4,  4,  4,  4,  7,  4,  // A
+                    4,  4,  4,  4,  4,  4,  7,  4,  4,  4,  4,  4,  4,  4,  7,  4,  // B
+                    5,  10, 10, 10, 11, 11, 7,  11, 5,  10, 10, 10, 11, 11, 7,  11, // C
+                    5,  10, 10, 10, 11, 11, 7,  11, 5,  10, 10, 10, 11, 11, 7,  11, // D
+                    5,  10, 10, 18, 11, 11, 7,  11, 5,  5,  10, 5,  11, 11, 7,  11, // E
+                    5,  10, 10, 4,  11, 11, 7,  11, 5,  5,  10, 4,  11, 11, 7,  11  // F
+                ],
         }
         
     }
@@ -158,19 +185,25 @@ impl Processor8080{
     }
 
 
-    pub fn generate_interrupt(&mut self, interrupt_number: u8){
+    pub fn generate_interrupt(&mut self){
     
         push_address_onto_stack(self, self.program_counter);
     
-        self.program_counter = (8 * interrupt_number) as u16;
+        self.program_counter = (8 * self.interrupt_value) as u16;
+
+        self.cycles_elapsed += 11;
+
+        self.interrupt_enabled = false;
     
     }
 
     pub fn emulate(&mut self){
     
         let opcode: u8 = self.memory[self.program_counter as usize];
-    
-        if opcode != 0x00 && true{
+
+        self.cycles_elapsed += self.opcode_cycle_length[opcode as usize];
+
+        if opcode != 0x00 && false{
     
             write!(self.logger, "\n\n==============\n\n");
             

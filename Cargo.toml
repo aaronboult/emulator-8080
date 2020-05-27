@@ -1,6 +1,7 @@
 [package]
 name = "emulator_8080"
 version = "0.1.0"
+build="build.rs"
 authors = ["Aaron Boult <aaronboult25@gmail.com>"]
 edition = "2018"
 
@@ -19,3 +20,4 @@ name = "cpu"
 path = "src/cpu.rs"
 
 [dependencies]
+sdl2 = "0.34"
