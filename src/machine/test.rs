@@ -8,7 +8,7 @@ pub fn test_interrupt(_machine: &mut Machine){
 
 }
 
-pub fn test_in(processor: &mut Processor8080, port: u8) -> u8{
+pub fn test_in(processor: &mut Processor8080, port: u8, _ports: &Vec<u8>) -> u8{
 
     write!(processor.logger, "Port: {}\t", port);
 
@@ -16,7 +16,7 @@ pub fn test_in(processor: &mut Processor8080, port: u8) -> u8{
 
 }
 
-pub fn test_out(processor: &mut Processor8080, port: u8, value: u8){
+pub fn test_out(processor: &mut Processor8080, port: u8, value: u8, _ports: &Vec<u8>){
 
     write!(processor.logger, "Port: {}\tValue: {}", port, value);
 

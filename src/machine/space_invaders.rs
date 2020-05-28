@@ -40,13 +40,14 @@ pub fn setup(setup_config: &mut SetupConfiguration){
         size: 0x800
     });
     
-    setup_config.ports[0] = 0b00010000;
+    setup_config.ports[0] = 0b01110000;
 
-    setup_config.ports[1] = 0b00000000;
+    setup_config.ports[1] = 0b00010000;
 
     setup_config.window.set_title("Space Invaders").expect("Failed to set window title");
 
-    setup_config.window.set_size(224, 256).expect("Failed to size window");
+    // setup_config.window.set_size(224, 256).expect("Failed to size window");
+    setup_config.window.set_size(700, 700).expect("Failed to size window");
 
 }
 
@@ -58,56 +59,58 @@ fn key_event(machine: &mut Machine){
 
         match event{
 
+            Event::KeyDown { keycode: Some(Keycode::D), .. } => machine.cpu.debug = !machine.cpu.debug,
+
             Event::Quit {..} |
     
             Event::KeyDown { keycode: Some(Keycode::Escape), .. } => std::process::exit(0),
     
-            Event::KeyDown { keycode: Some(Keycode::T), .. } => machine.ports[1] = machine.ports[1] | 0b00000100, // Tilt
+            Event::KeyDown { keycode: Some(Keycode::T), .. } => machine.ports[2] |= 0b00000100, // Tilt
     
-            Event::KeyDown { keycode: Some(Keycode::C), .. } => machine.ports[0] = machine.ports[0] | 0b00000010, // Coin entered
+            Event::KeyDown { keycode: Some(Keycode::C), .. } => machine.ports[1] |= 0b00000001, // Coin entered
     
-            Event::KeyDown { keycode: Some(Keycode::Num1), .. } => machine.ports[0] = machine.ports[0] | 0b00000100, // Player 1 ready
+            Event::KeyDown { keycode: Some(Keycode::Num1), .. } => machine.ports[1] |= 0b00000100, // Player 1 ready
     
-            Event::KeyDown { keycode: Some(Keycode::Num2), .. } => machine.ports[0] = machine.ports[0] | 0b00000010, // Player 2 ready
+            Event::KeyDown { keycode: Some(Keycode::Num2), .. } => machine.ports[1] |= 0b00000010, // Player 2 ready
     
             Event::KeyDown { keycode: Some(Keycode::Space), .. } => {
-                machine.ports[0] = machine.ports[0] | 0b00010000; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] | 0b00010000; // Player 2 shoot
+                machine.ports[1] |= 0b00010000; // Player 1 shoot
+                machine.ports[2] |= 0b00010000; // Player 2 shoot
             },
     
             Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
-                machine.ports[0] = machine.ports[0] | 0b00100000; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] | 0b00100000; // Player 2 shoot
+                machine.ports[1] |= 0b00100000; // Player 1 shoot
+                machine.ports[2] |= 0b00100000; // Player 2 shoot
             },
     
             Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
-                machine.ports[0] = machine.ports[0] | 0b01000000; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] | 0b01000000; // Player 2 shoot
+                machine.ports[1] |= 0b01000000; // Player 1 shoot
+                machine.ports[2] |= 0b01000000; // Player 2 shoot
             },
 
 
     
-            Event::KeyUp { keycode: Some(Keycode::T), .. } => machine.ports[1] = machine.ports[1] & 0b11111011, // Tilt
+            Event::KeyUp { keycode: Some(Keycode::T), .. } => machine.ports[2] &= 0b11111011, // Tilt
     
-            Event::KeyUp { keycode: Some(Keycode::C), .. } => machine.ports[0] = machine.ports[0] & 0b11111101, // Coin entered
+            Event::KeyUp { keycode: Some(Keycode::C), .. } => machine.ports[1] &= 0b11111110, // Coin entered
     
-            Event::KeyUp { keycode: Some(Keycode::Num1), .. } => machine.ports[0] = machine.ports[0] & 0b11111011, // Player 1 ready
+            Event::KeyUp { keycode: Some(Keycode::Num1), .. } => machine.ports[1] &= 0b11111011, // Player 1 ready
     
-            Event::KeyUp { keycode: Some(Keycode::Num2), .. } => machine.ports[0] = machine.ports[0] & 0b11111101, // Player 2 ready
+            Event::KeyUp { keycode: Some(Keycode::Num2), .. } => machine.ports[1] &= 0b11111101, // Player 2 ready
     
             Event::KeyUp { keycode: Some(Keycode::Space), .. } => {
-                machine.ports[0] = machine.ports[0] & 0b11101111; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] & 0b11101111; // Player 2 shoot
+                machine.ports[1] &= 0b11101111; // Player 1 shoot
+                machine.ports[2] &= 0b11101111; // Player 2 shoot
             },
     
             Event::KeyUp { keycode: Some(Keycode::Left), .. } => {
-                machine.ports[0] = machine.ports[0] & 0b11011111; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] & 0b11011111; // Player 2 shoot
+                machine.ports[1] &= 0b11011111; // Player 1 shoot
+                machine.ports[2] &= 0b11011111; // Player 2 shoot
             },
     
             Event::KeyUp { keycode: Some(Keycode::Right), .. } => {
-                machine.ports[0] = machine.ports[0] & 0b10111111; // Player 1 shoot
-                machine.ports[1] = machine.ports[1] & 0b10111111; // Player 2 shoot
+                machine.ports[1] &= 0b10111111; // Player 1 shoot
+                machine.ports[2] &= 0b10111111; // Player 2 shoot
             },
 
             _ => {},
@@ -127,7 +130,7 @@ pub fn space_invaders_interrupt(machine: &mut Machine){
             machine.cpu.generate_interrupt(); // Generate a video hardware interrupt
     
         }
-
+        
         machine.cpu.cycles_elapsed -= (2_000_000 / 60 / 2) as u16;
 
         machine.cpu.interrupt_value = if machine.cpu.interrupt_value == 1 { 2 } else { 1 };
@@ -136,7 +139,7 @@ pub fn space_invaders_interrupt(machine: &mut Machine){
 
 }
 
-pub fn space_invaders_in(processor: &mut Processor8080, port: u8) -> u8{
+pub fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8>) -> u8{
 
     /*
         Custom registers:
@@ -152,9 +155,9 @@ pub fn space_invaders_in(processor: &mut Processor8080, port: u8) -> u8{
 
     match port {
 
-        0 => return 1, // Input
+        1 => return ports[1], // Input
 
-        1 => return 0, // Input
+        2 => return ports[2], // Input
 
         3 => return (processor.custom_registers[1] >> (8 - processor.custom_registers[0])) as u8,
         
@@ -166,7 +169,7 @@ pub fn space_invaders_in(processor: &mut Processor8080, port: u8) -> u8{
 
 }
 
-pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8){
+pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports: &Vec<u8>){
 
     /*
         Custom registers:
@@ -182,11 +185,11 @@ pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8){
 
     match port {
 
-        2 => processor.custom_registers[0] = (value & 0x07) as u16,
+        2 => processor.custom_registers[0] = (value & 0b111) as u16, // Set the shif amount to the last 3 bits of the provided value
 
         3 => {}, // Play Sound
 
-        4 => processor.custom_registers[1] = (processor.custom_registers[1] >> 8) | ((value as u16) << 2),
+        4 => processor.custom_registers[1] = (processor.custom_registers[1] >> 8) | ((value as u16) << 8), // 
 
         5 => {}, // Play Sound
 
@@ -207,38 +210,38 @@ pub fn draw(machine: &mut Machine){
             let x_pos = (current_byte_position * 8 + bit) % 256;
             let y_pos = (current_byte_position * 8 + bit) / 256;
 
-            if machine.cpu.memory[0x2400 + current_byte_position as usize] >> bit & 0x01 != 0{ // If this pixel is on
+            if (machine.cpu.memory[0x2400 + current_byte_position as usize] >> bit) & 0x01 != 0{ // If this pixel is on
 
                 if x_pos >= 192 && x_pos < 224{ // If the pixel is in the 'RED' range
 
-                machine.canvas.set_draw_color(Color::RGB(255, 0, 0));
+                    machine.canvas.set_draw_color(Color::RGB(255, 0, 0));
 
                 }
                 else if (x_pos > 16 && x_pos <= 72) || (x_pos < 16 && y_pos >= 16 && y_pos < 134){ // If the pixel is in the 'GREEN' range
 
-                machine.canvas.set_draw_color(Color::RGB(0, 255, 0));
+                    machine.canvas.set_draw_color(Color::RGB(0, 255, 0));
 
                 }
                 else{ // The pixel is in the 'WHITE' range
 
-                machine.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    machine.canvas.set_draw_color(Color::RGB(255, 255, 255));
 
                 }
 
-                machine.canvas.draw_point(Point::new(y_pos, 256 - x_pos)).expect("Failed to draw window");
+            }
+            else{
+
+                machine.canvas.set_draw_color(Color::RGB(0, 0, 0));
 
             }
-            // else{
 
-            //     machine.canvas.set_draw_color(Color::RGB(0, 0, 0));
-
-            //     machine.canvas.draw_point(Point::new(y_pos, 256 - x_pos)).expect("Failed to draw window");
-
-            // }
+            machine.canvas.draw_point(Point::new(y_pos, 255 - x_pos)).expect("Failed to draw window");
 
         }
 
     }
+
+    machine.canvas.set_draw_color(Color::RGB(0, 0, 255));
 
     machine.canvas.present();
 

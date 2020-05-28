@@ -20,8 +20,8 @@ pub struct Machine{
 }
 
 pub struct SetupConfiguration{
-    input_handler: fn(&mut Processor8080, u8) -> u8,
-    output_handler: fn(&mut Processor8080, u8, u8),
+    input_handler: fn(&mut Processor8080, u8, &Vec<u8>) -> u8,
+    output_handler: fn(&mut Processor8080, u8, u8, &Vec<u8>),
     key_event_handler: fn(&mut Machine),
     interrupt_handler: fn(&mut Machine),
     drawer: fn(&mut Machine),
@@ -110,7 +110,7 @@ impl Machine{
 
                     saved_cycle_count = self.cpu.cycles_elapsed;
 
-                    self.cpu.emulate();
+                    self.cpu.emulate(&self.ports);
 
                     cycle += self.cpu.cycles_elapsed - saved_cycle_count;
         
@@ -121,8 +121,8 @@ impl Machine{
                 cycle = 0;
 
                 (self.drawer)(self); // Draw the window
-    
-                self.cpu.cycles_elapsed = 0;
+
+                // self.cpu.debug_output();
 
             }
 
@@ -130,11 +130,11 @@ impl Machine{
 
     }
 
-    pub fn emulate_n(&mut self, n: usize){
+    pub fn _emulate_n(&mut self, n: usize){
 
         for _ in 0..n{
 
-            self.cpu.emulate();
+            self.cpu.emulate(&self.ports);
 
         }
 

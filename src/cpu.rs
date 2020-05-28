@@ -44,10 +44,11 @@ pub struct Processor8080{
 
     opcode_cycle_length: [u16; 256],
 
-    input_handler: fn(&mut Self, u8) -> u8,
-    output_handler: fn(&mut Self, u8, u8),
+    input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8,
+    output_handler: fn(&mut Self, u8, u8, &Vec<u8>),
 
     testing: bool,
+    pub debug: bool,
 
     pub logger: std::boxed::Box<dyn std::io::Write>,
 }
@@ -63,7 +64,7 @@ struct Flags{
 
 impl Processor8080{
 
-    pub fn new(input_handler: fn(&mut Self, u8) -> u8, output_handler: fn(&mut Self, u8, u8), log_to_file: bool) -> Self{
+    pub fn new(input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8, output_handler: fn(&mut Self, u8, u8, &Vec<u8>), log_to_file: bool) -> Self{
 
         let logger;
 
@@ -93,6 +94,7 @@ impl Processor8080{
             input_handler: input_handler,
             output_handler: output_handler,
             testing: false,
+            debug: false,
             logger: logger,
 
             opcode_cycle_length: 
@@ -154,7 +156,7 @@ impl Processor8080{
             self.memory.push(0);
         }
     
-        println!("{:?}", self.memory);
+        write!(self.logger, "{:?}\n", self.memory);
     
         self.stack_pointer = 0x2400;
 
@@ -190,42 +192,22 @@ impl Processor8080{
         push_address_onto_stack(self, self.program_counter);
     
         self.program_counter = (8 * self.interrupt_value) as u16;
-
+        
         self.cycles_elapsed += 11;
 
         self.interrupt_enabled = false;
     
     }
 
-    pub fn emulate(&mut self){
+    pub fn emulate(&mut self, ports: &Vec<u8>){
     
         let opcode: u8 = self.memory[self.program_counter as usize];
 
         self.cycles_elapsed += self.opcode_cycle_length[opcode as usize];
 
-        if opcode != 0x00 && false{
-    
-            write!(self.logger, "\n\n==============\n\n");
-            
-            disassembler::check_opcode_8080(self.program_counter as usize, &self.memory, &mut self.logger);
-    
-            write!(self.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
-                self.memory[self.program_counter as usize],
-                self.memory[(self.program_counter + 1) as usize],
-                self.memory[(self.program_counter + 2) as usize],
-            );
-    
-            write!(self.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
-                self.a, self.b, self.c, self.d, self.e, self.h, self.l
-            );
-    
-            write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
-                self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
-            );
-            
-            write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter);
-    
-            write!(self.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", self.stack_pointer);
+        if opcode != 0x00 && (self.debug || false){
+
+            self.debug_output();
     
         }
     
@@ -240,8 +222,14 @@ impl Processor8080{
             0x00 => {}, // NOP
             0xF3 => self.interrupt_enabled = false, // DI
             0xFB => self.interrupt_enabled = true, // EI
-            0xD3 => (self.output_handler)(self, self.memory[self.program_counter as usize], self.a), // OUT
-            0xDB => self.a = (self.input_handler)(self, self.memory[self.program_counter as usize]), // IN
+            0xD3 => {
+                (self.output_handler)(self, self.memory[self.program_counter as usize], self.a, ports);
+                self.program_counter += 1;
+            }, // OUT
+            0xDB => {
+                self.a = (self.input_handler)(self, self.memory[self.program_counter as usize], ports);
+                self.program_counter += 1;
+            }, // IN
             0x27 => {}, // DAA
             0x76 => panic!("Halting"), // HLT
             //#endregion
@@ -252,21 +240,15 @@ impl Processor8080{
             ********************************************/
             //#region
             0x02 => {
-                let address = get_address_from_pair(
-                    &mut self.b,
-                    &mut self.c,
-                );
-                if address < 0x2000{
+                let address = get_address_from_pair(&mut self.b, &mut self.c,);
+                if address < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.a;
             }, // STAX B
             0x12 => {
-                let address = get_address_from_pair(
-                    &mut self.d,
-                    &mut self.e,
-                );
-                if address < 0x2000{
+                let address = get_address_from_pair(&mut self.d, &mut self.e,);
+                if address < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.a;
@@ -274,11 +256,8 @@ impl Processor8080{
             0x32 => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(
-                    &mut first_byte,
-                    &mut second_byte,
-                );
-                if address < 0x2000{
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
+                if address < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.a;
@@ -287,11 +266,8 @@ impl Processor8080{
             0x22 => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(
-                    &mut first_byte,
-                    &mut second_byte,
-                );
-                if address + 1 < 0x2000{
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
+                if address + 1 < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.l;
@@ -327,24 +303,26 @@ impl Processor8080{
             0x31 => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
                 self.stack_pointer = address;
                 self.program_counter += 2;
             }, // LXI SP,operand
             0x3A => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
                 self.a = self.memory[address as usize];
                 self.program_counter += 2;
             }, // LDA addr
             0x2A => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte,&mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
                 self.l = self.memory[address as usize];
                 self.h = self.memory[(address + 1) as usize];
             }, // LHLD addr
+            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c) as usize], // LDAX B
+            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e) as usize], // LDAX D
             //#endregion
     
     
@@ -511,9 +489,6 @@ impl Processor8080{
                 self.a = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
             }, // MVI A,D8	2		A <- byte 2
-    
-            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c) as usize], // LDAX B
-            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e) as usize], // LDAX D
             //#endregion
     
     
@@ -685,34 +660,34 @@ impl Processor8080{
             *                 Add Opcodes               *
             ********************************************/
             //#region
-            0x80 => add(self, self.b.into(), 0), // ADD B
-            0x81 => add(self, self.c.into(), 0), // ADD C
-            0x82 => add(self, self.d.into(), 0), // ADD D
-            0x83 => add(self, self.e.into(), 0), // ADD E
-            0x84 => add(self, self.h.into(), 0), // ADD H
-            0x85 => add(self, self.l.into(), 0), // ADD L
+            0x80 => add(self, self.b, false), // ADD B
+            0x81 => add(self, self.c, false), // ADD C
+            0x82 => add(self, self.d, false), // ADD D
+            0x83 => add(self, self.e, false), // ADD E
+            0x84 => add(self, self.h, false), // ADD H
+            0x85 => add(self, self.l, false), // ADD L
             0x86 => {
                 let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
-                add(self, self.memory[address as usize].into(), 0);
+                add(self, self.memory[address as usize], false);
             }, // ADD M - From memory address
-            0x87 => add(self, self.a.into(), 0), // ADD A
-            0x88 => add(self, self.b.into(), self.c as u16), // ADC B
-            0x89 => add(self, self.c.into(), self.c as u16), // ADC C
-            0x8A => add(self, self.d.into(), self.c as u16), // ADC D
-            0x8B => add(self, self.e.into(), self.c as u16), // ADC E
-            0x8C => add(self, self.h.into(), self.c as u16), // ADC H
-            0x8D => add(self, self.l.into(), self.c as u16), // ADC L
+            0x87 => add(self, self.a, false), // ADD A
+            0x88 => add(self, self.b, self.flags.carry), // ADC B
+            0x89 => add(self, self.c, self.flags.carry), // ADC C
+            0x8A => add(self, self.d, self.flags.carry), // ADC D
+            0x8B => add(self, self.e, self.flags.carry), // ADC E
+            0x8C => add(self, self.h, self.flags.carry), // ADC H
+            0x8D => add(self, self.l, self.flags.carry), // ADC L
             0x8E => {
                 let address: u16 = get_address_from_pair(&mut self.h, &mut self.l);
-                add(self, self.memory[address as usize].into(), self.c as u16);
+                add(self, self.memory[address as usize], self.flags.carry);
             }, // ADC M - From memory address
-            0x8F => add(self, self.a.into(), self.c as u16), // ADC A
+            0x8F => add(self, self.a, self.flags.carry), // ADC A
             0xC6 => {
-                add(self, self.memory[self.program_counter as usize].into(), 0);
+                add(self, self.memory[self.program_counter as usize], false);
                 self.program_counter += 1;
             }, // ADI - Immediate
             0xCE => {
-                add(self, self.memory[self.program_counter as usize].into(), self.c as u16);
+                add(self, self.memory[self.program_counter as usize], self.flags.carry);
                 self.program_counter += 1;
             }, // ACI - Immediate
             //#endregion
@@ -825,23 +800,26 @@ impl Processor8080{
             ********************************************/
             //#region
             0x07 => {
-                self.flags.carry = (self.a & 0x80) != 0;
+                self.flags.carry = (self.a & 0b10000000) != 0; // Set the carry bit equal to the highest order bit of the accumulator
                 self.a = self.a << 1;
-                rotate_carry_logic(self, 0x01, 0xFE);
+                rotate_carry_logic(self, 0b00000001, 0b11111110); // Handle high order bit to low order bit transfer
             }, // RLC
             0x0F => {
-                self.flags.carry = (self.a & 0x01) != 0;
+                self.flags.carry = (self.a & 0b00000001) != 0; // Set the carry bit equal to the lowest order bit of the accumulator
                 self.a = self.a >> 1;
-                rotate_carry_logic(self, 0x80, 0x7F);
+                rotate_carry_logic(self, 0b10000000, 0b01111111); // Handle the low order bit to high order bit transfer
             }, // RRC
             0x17 => {
-                rotate_carry_logic(self, 0x01, 0xFE);
-                self.flags.carry = (self.a & 0x80) != 0;
-                self.a = self.a << 1;
+                let carry_temp = (self.a & 0b10000000) != 0; // Store the highest order bit as the new carry bit value
+                self.a = self.a << 1; // Perform the shift, destroying the new carry bit value (though it is still stored)
+                rotate_carry_logic(self, 0b00000001, 0b11111110); // Handle the carry bit to lowest order bit transfer
+                self.flags.carry = carry_temp; // Set the new carry bit
             }, // RAL
             0x1F => {
-                rotate_carry_logic(self, 0x80, 0x7F);
-                self.a = self.a >> 1;
+                let carry_temp = (self.a & 0b00000001) != 0; // Store the lowest order bit as the new carry bit value
+                self.a = self.a >> 1; // Perform the shift, destroying the new carry bit value (though it is still stored)
+                rotate_carry_logic(self, 0b10000000, 0b01111111); // Handle the carry bit to highest order bit transfer
+                self.flags.carry = carry_temp; // Set the new carry bit
             }, // RAR
             //#endregion
     
@@ -1034,7 +1012,13 @@ impl Processor8080{
             0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l),
             //#endregion
     
-            _ => unimplemented_opcode(),
+            _ => {
+                write!(self.logger, "Length: {:x}\n", self.memory.len());
+                write!(self.logger, "0x20C0: {:x}\n", self.memory[0x20C0]);
+                write!(self.logger, "Unimplemented Opcode:\n\tDenary: {0}\n\tHex: {0:x}\n", opcode);
+                self.debug_output();
+                unimplemented_opcode()
+            },
     
         }
     
@@ -1049,6 +1033,32 @@ impl Processor8080{
             self.program_counter = 0;
     
         }
+    
+    }
+
+    pub fn debug_output(&mut self){
+        
+        write!(self.logger, "\n\n==============\n\n");
+        
+        disassembler::check_opcode_8080(self.program_counter as usize, &self.memory, &mut self.logger);
+    
+        write!(self.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
+            self.memory[self.program_counter as usize],
+            self.memory[(self.program_counter + 1) as usize],
+            self.memory[(self.program_counter + 2) as usize],
+        );
+    
+        write!(self.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
+            self.a, self.b, self.c, self.d, self.e, self.h, self.l
+        );
+    
+        write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
+            self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
+        );
+        
+        write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter);
+    
+        write!(self.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", self.stack_pointer);
     
     }
 
@@ -1115,9 +1125,16 @@ fn get_hl_address_pair(processor: &mut Processor8080) -> Result<u16, bool> {
 *                 Arithmetic                *
 ********************************************/
 //#region
-fn add(processor: &mut Processor8080, byte: u16, carry: u16){
+fn add(processor: &mut Processor8080, byte: u8, carry: bool){
 
-    let answer: u16 = (processor.a as u16) + byte + carry;
+    let answer: u16 = (processor.a as u16) + byte as u16 + {
+        if carry{
+            1
+        }
+        else{
+            0
+        }
+    };
 
     set_flags(answer, processor);
 
@@ -1127,7 +1144,14 @@ fn add(processor: &mut Processor8080, byte: u16, carry: u16){
 
 fn subtract(processor: &mut Processor8080, byte: u8, carry: u8){
     
-    let answer = (processor.a as u16) + get_twos_complement(byte) + get_twos_complement(carry);
+    let answer = (processor.a as u32 + get_twos_complement(byte) as u32 + {
+        if carry == 0 {
+            0
+        }
+        else {
+            get_twos_complement(carry) as u32
+        }
+    }) as u16;
 
     set_flags(answer, processor);
 
@@ -1151,16 +1175,19 @@ fn double_add(processor: &mut Processor8080, byte_a: u8, byte_b: u8){
 
 }
 
+// Handles the transfer of either the carry bit, high order bit or low order bit into
+// any of the other respective positions; e.g the high order bit of the accumulator is
+// transferred to the low order bit of the accumulator
 fn rotate_carry_logic(processor: &mut Processor8080, or_value: u8, and_value: u8){
 
     if processor.flags.carry {
 
-        processor.a = processor.a | or_value;
+        processor.a = processor.a | or_value; // Sets the relevant bit
 
     }
     else {
 
-        processor.a = processor.a & and_value;
+        processor.a = processor.a & and_value; // Clears the relevant bit
 
     }
 
@@ -1194,6 +1221,8 @@ fn logical(processor: &mut Processor8080, byte: u8, operator: fn(u8, u8) -> u16)
 
     set_flags(answer, processor);
 
+    processor.flags.carry = false; // Carry reset to false as there will never be a carry with a logical operation
+
     processor.a = answer as u8;
 
 }
@@ -1204,11 +1233,16 @@ fn compare(processor: &mut Processor8080, byte: u8){
 
     processor.flags.zero = answer == 0;
 
-    processor.flags.sign = (answer & 0x80) == 0x80;
+    processor.flags.sign = (answer & 0x80) == 0x80; // If the highest order bit is set
 
     processor.flags.parity = check_parity(answer as u16);
 
-    processor.flags.carry = processor.a < byte;
+    processor.flags.carry = if (processor.a > 0 && byte > 0) || (processor.a & 0x80 != 0 && byte & 0x80 != 0){ // If the two values are the same sign
+        processor.a < byte
+    }
+    else{
+        !(processor.a < byte)
+    };
 
 }
 //#endregion
