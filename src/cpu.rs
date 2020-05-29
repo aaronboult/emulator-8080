@@ -1,5 +1,6 @@
 /*
     Intel 8080 Data Book: https://altairclone.com/downloads/manuals/8080%20Programmers%20Manual.pdf
+    Original Repository: https://github.com/aaronboult/emulator-8080
 */
 
 mod disassembler;
@@ -157,13 +158,9 @@ impl Processor8080{
         }
     
         write!(self.logger, "{:?}\n", self.memory);
-    
-        self.stack_pointer = 0x2400;
-
-        self.rom_size = 0x2000;
 
         self.testing = false;
-
+        
     }
 
     fn load_file(&mut self, file_name: String, offset: usize, buffer_size: usize){
@@ -179,6 +176,8 @@ impl Processor8080{
         let mut file = File::open(file_name).expect("File not found");
 
         let mut buffer = vec![0u8; buffer_size];
+
+        self.rom_size += buffer_size as u16;
 
         file.read_exact(&mut buffer).expect("Failed to read file");
 
@@ -240,14 +239,14 @@ impl Processor8080{
             ********************************************/
             //#region
             0x02 => {
-                let address = get_address_from_pair(&mut self.b, &mut self.c,);
+                let address = get_address_from_pair(&mut self.b, &mut self.c);
                 if address < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.a;
             }, // STAX B
             0x12 => {
-                let address = get_address_from_pair(&mut self.d, &mut self.e,);
+                let address = get_address_from_pair(&mut self.d, &mut self.e);
                 if address < self.rom_size{
                     return;
                 }
@@ -385,60 +384,53 @@ impl Processor8080{
             0x6F => self.l = self.a, // MOV L,A
             
             0x70 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.b;
+                self.memory[address] = self.b;
             }, // MOV (HL),B
             0x71 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.c;
+                self.memory[address] = self.c;
             }, // MOV (HL),C
             0x72 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.d;
+                self.memory[address] = self.d;
             }, // MOV (HL),D
             0x73 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.e;
+                self.memory[address] = self.e;
             }, // MOV (HL),E
             0x74 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.h;
+                self.memory[address] = self.h;
             }, // MOV (HL),H
             0x75 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.l;
+                self.memory[address] = self.l;
             }, // MOV (HL),L
             0x77 => {
-                let result = get_hl_address_pair(self);
-                if result.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let result = result.unwrap();
-                self.memory[result as usize] = self.a;
+                self.memory[address] = self.a;
             }, // MOV (HL),A
             
             0x78 => self.a = self.b, // MOV A,B
@@ -453,42 +445,39 @@ impl Processor8080{
             0x06 => {
                 self.b = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI B, D8	2		B <- byte 2
+            }, // MVI B,D8
             0x0e => {
                 self.c = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI C,D8	2		C <- byte 2
+            }, // MVI C,D8
             0x16 => {
                 self.d = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI D, D8	2		D <- byte 2
+            }, // MVI D,D8
             0x1e => {
                 self.e = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI E,D8	2		E <- byte 2
+            }, // MVI E,D8
             0x26 => {
                 self.h = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI H,D8	2		H <- byte 2
+            }, // MVI H,D8
             0x2e => {
                 self.l = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI L, D8	2		L <- byte 2
+            }, // MVI L,D8
             0x36 => {
-                let address = get_address_from_pair(
-                    &mut self.h,
-                    &mut self.l,
-                );
-                if address < 0x2000{
+                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                if address < self.rom_size{
                     return;
                 }
                 self.memory[address as usize] = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI M,D8	2		(HL) <- byte 2
+            }, // MVI M,D8
             0x3e => {
                 self.a = self.memory[self.program_counter as usize];
                 self.program_counter += 1;
-            }, // MVI A,D8	2		A <- byte 2
+            }, // MVI A,D8
             //#endregion
     
     
@@ -496,13 +485,13 @@ impl Processor8080{
             *                 Double Add                *
             ********************************************/
             //#region
-            0x09 => double_add(self, self.b, self.c),
-            0x19 => double_add(self, self.d, self.e),
-            0x29 => double_add(self, self.h, self.l),
+            0x09 => double_add(self, self.b, self.c), // DAD B
+            0x19 => double_add(self, self.d, self.e), // DAD D
+            0x29 => double_add(self, self.h, self.l), // DAD H
             0x39 => {
                 let stack_pointer_split = seperate_16bit_pair(self.stack_pointer);
-                double_add(self, stack_pointer_split.1, stack_pointer_split.0);
-            },
+                double_add(self, stack_pointer_split.0, stack_pointer_split.1);
+            }, // DAD SP
             //#endregion
     
     
@@ -541,11 +530,10 @@ impl Processor8080{
                 self.l = answer as u8;
             }, // INR L
             0x34 => {
-                let address = get_hl_address_pair(self);
-                if address.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let address = address.unwrap() as usize;
                 let answer: u16 = (self.memory[address] as u16) + 1;
                 step_register_flags(self, answer);
                 self.memory[address] = answer as u8;
@@ -593,11 +581,10 @@ impl Processor8080{
                 self.l = answer as u8;
             }, // DCR L
             0x35 => {
-                let address = get_hl_address_pair(self);
-                if address.is_err(){
+                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
+                if (address as u16) < self.rom_size{
                     return;
                 }
-                let address = address.unwrap() as usize;
                 let answer: u16 = ((self.memory[address] as u32) + get_twos_complement(1) as u32) as u16;
                 step_register_flags(self, answer);
                 self.memory[address] = answer as u8;
@@ -638,21 +625,21 @@ impl Processor8080{
             ********************************************/
             //#region
             0x0B => {
-                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.b, &mut self.c) + get_twos_complement(1));
+                let pair = seperate_16bit_pair((get_address_from_pair(&mut self.b, &mut self.c) as u32 + get_twos_complement(1) as u32) as u16);
                 self.b = pair.0;
                 self.c = pair.1;
             }, // DCX B
             0x1B => {
-                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.d, &mut self.e) + get_twos_complement(1));
+                let pair = seperate_16bit_pair((get_address_from_pair(&mut self.d, &mut self.e) as u32 + get_twos_complement(1) as u32) as u16);
                 self.d = pair.0;
                 self.e = pair.1;
             }, // DCX D
             0x2B => {
-                let pair = seperate_16bit_pair(get_address_from_pair(&mut self.h, &mut self.l) + get_twos_complement(1));
+                let pair = seperate_16bit_pair((get_address_from_pair(&mut self.h, &mut self.l) as u32 + get_twos_complement(1) as u32) as u16);
                 self.h = pair.0;
                 self.l = pair.1;
             }, // DCX H
-            0x3B => self.stack_pointer += get_twos_complement(1), // DCX SP
+            0x3B => self.stack_pointer = (self.stack_pointer as u32 + get_twos_complement(1) as u32) as u16, // DCX SP
             //#endregion
     
     
@@ -781,8 +768,8 @@ impl Processor8080{
             }, // POP PSW
             0xF9 => self.stack_pointer = get_address_from_pair(&mut self.h, &mut self.l), // SPHL
             0xE3 => {
-                self.h = self.memory[self.stack_pointer as usize + 1];
-                self.l = self.memory[self.stack_pointer as usize];
+                mem::swap(&mut self.h, &mut self.memory[(self.stack_pointer + 1) as usize]);
+                mem::swap(&mut self.l, &mut self.memory[self.stack_pointer as usize]);
             }, // XTHL
             //#endregion
     
@@ -850,8 +837,8 @@ impl Processor8080{
             *                   Carry                   *
             ********************************************/
             //#region
-            0x37 => self.flags.carry = true, // CMC
-            0x3F => self.flags.carry = !self.flags.carry, // STC
+            0x37 => self.flags.carry = true, // STC
+            0x3F => self.flags.carry = !self.flags.carry, // CMC
             //#endregion
     
     
@@ -948,7 +935,7 @@ impl Processor8080{
             0xE7 => reset(self, 20), // RST 4
             0xEF => reset(self, 28), // RST 5
             0xF7 => reset(self, 30), // RST 6
-            0xFF => reset(self, 30), // RST 7
+            0xFF => reset(self, 38), // RST 7
             //#endregion
     
     
@@ -956,7 +943,7 @@ impl Processor8080{
             *                Call Opcodes               *
             ********************************************/
             //#region
-            0xCD => {
+            0xCD => { // During the CPUDIAG test, a call to 0x05 is used to attempt to print information, so that behaviour is replicated here
                 if self.testing{
                     let addr = ((self.memory[(self.program_counter + 1) as usize] as u16) << 8) | (self.memory[self.program_counter as usize] as u16);
                     if addr == 5{
@@ -1009,7 +996,7 @@ impl Processor8080{
             0xEA => jump(self, self.flags.parity), // JPE addr - Parity even
             0xF2 => jump(self, !self.flags.sign), // JP addr - Positive
             0xFA => jump(self, self.flags.sign), // JM addr - Minus
-            0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l),
+            0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l), // PCHL
             //#endregion
     
             _ => {
@@ -1022,7 +1009,7 @@ impl Processor8080{
     
         }
     
-        if self.stack_pointer < self.rom_size { // Ensuring ROM is not overwritten
+        if self.stack_pointer < self.rom_size || self.stack_pointer >= self.memory.len() as u16{ // Ensuring ROM is not overwritten
     
             self.stack_pointer = 0;
     
@@ -1074,7 +1061,7 @@ impl Processor8080{
 fn seperate_16bit_pair(pair: u16) -> (u8, u8) {
     
     (
-        ((pair >> 8) & 0xff) as u8,
+        (pair >> 8) as u8,
         (pair & 0xff) as u8
     )
 
@@ -1096,26 +1083,6 @@ fn get_address_from_pair(byte_1: &mut u8, byte_2: &mut u8) -> u16 {
     }
 
     address
-
-}
-
-fn get_hl_address_pair(processor: &mut Processor8080) -> Result<u16, bool> {
-
-    let address = get_address_from_pair(
-
-        &mut processor.h,
-
-        &mut processor.l,
-
-    );
-
-    if address < 0x2000{
-
-        return Err(false);
-
-    }
-
-    Ok(address)
 
 }
 //#endregion
@@ -1169,9 +1136,9 @@ fn double_add(processor: &mut Processor8080, byte_a: u8, byte_b: u8){
 
     let split_address = seperate_16bit_pair(new_address as u16);
 
-    processor.h = split_address.1;
+    processor.h = split_address.0;
 
-    processor.l = split_address.0;
+    processor.l = split_address.1;
 
 }
 
@@ -1196,16 +1163,6 @@ fn rotate_carry_logic(processor: &mut Processor8080, or_value: u8, and_value: u8
 fn get_twos_complement(byte: u8) -> u16{
     
     ((!(byte as u16) as u32) + 1) as u16
-
-}
-
-fn step_register_flags(processor: &mut Processor8080, answer: u16){
-
-    let carry_value = processor.flags.carry;
-
-    set_flags(answer, processor);
-
-    processor.flags.carry = carry_value;
 
 }
 //#endregion
@@ -1260,12 +1217,12 @@ fn push_address_onto_stack(processor: &mut Processor8080, address: u16){
 
 }
 
-// byte_1 -> stack_pointer - 1, byte_2 -> stack_pointer - 2
+// byte_1 is highest order bits, byte_2 is lowest order bits
 fn push_onto_stack(processor: &mut Processor8080, byte_1: u8, byte_2: u8){
-    
-    processor.memory[(((processor.stack_pointer as u32) + (get_twos_complement(1) as u32)) as u16) as usize] = byte_1; // Push return address onto the stack
-    processor.memory[(((processor.stack_pointer as u32) + (get_twos_complement(2) as u32)) as u16) as usize] = byte_2; // Little endian so it is pushed in reverse
 
+    processor.memory[((processor.stack_pointer as u32 + get_twos_complement(1) as u32) as u16) as usize] = byte_1;  // Push return address onto the stack
+    processor.memory[((processor.stack_pointer as u32 + get_twos_complement(2) as u32) as u16) as usize] = byte_2;  // Highest order bits are pushed at SP - 1
+                                                                                                                    // Lowerst order bits are pushed at SP - 2
     processor.stack_pointer = ((processor.stack_pointer as u32) + (get_twos_complement(2) as u32)) as u16;
 
 }
@@ -1303,6 +1260,16 @@ fn check_parity(mut value: u16) -> bool {
     is_even
 
 }
+
+fn step_register_flags(processor: &mut Processor8080, answer: u16){
+
+    let carry_value = processor.flags.carry;
+
+    set_flags(answer, processor);
+
+    processor.flags.carry = carry_value;
+
+}
 //#endregion
 
 
@@ -1332,9 +1299,7 @@ fn call(processor: &mut Processor8080, flag: bool){
 
     if flag {
 
-        let return_address: u16 = processor.program_counter + 2;
-
-        push_address_onto_stack(processor, return_address); // Stack overflows the program and thus overwrites the ROM
+        push_address_onto_stack(processor, processor.program_counter + 2);
 
         processor.program_counter = get_address_from_pair(
             &mut {processor.memory[(processor.program_counter + 1) as usize]},
@@ -1353,12 +1318,12 @@ fn call(processor: &mut Processor8080, flag: bool){
 fn ret(processor: &mut Processor8080, flag: bool){
 
     if flag {
-        
+
         processor.program_counter = get_address_from_pair(
-            &mut {processor.memory[(processor.stack_pointer + 1) as usize]}, 
+            &mut {processor.memory[(processor.stack_pointer + 1) as usize]},
             &mut {processor.memory[processor.stack_pointer as usize]},
         );
-        
+
         processor.stack_pointer += 2;
 
     }
@@ -1367,7 +1332,7 @@ fn ret(processor: &mut Processor8080, flag: bool){
 
 fn reset(processor: &mut Processor8080, address: u16){
 
-    push_address_onto_stack(processor, processor.program_counter);
+    push_address_onto_stack(processor, processor.program_counter + 2);
 
     processor.program_counter = address;
 
