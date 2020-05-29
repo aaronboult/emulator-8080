@@ -46,8 +46,7 @@ pub fn setup(setup_config: &mut SetupConfiguration){
 
     setup_config.window.set_title("Space Invaders").expect("Failed to set window title");
 
-    // setup_config.window.set_size(224, 256).expect("Failed to size window");
-    setup_config.window.set_size(700, 700).expect("Failed to size window");
+    setup_config.window.set_size(224, 256).expect("Failed to size window");
 
 }
 
@@ -207,17 +206,17 @@ pub fn draw(machine: &mut Machine){
 
         for bit in (0..8).rev(){ // Read each bit from the byte, as each bit represents a pixel - start from the leftmost bit
 
-            let x_pos = (current_byte_position * 8 + bit) % 256;
-            let y_pos = (current_byte_position * 8 + bit) / 256;
+            let x_pos = current_byte_position * 8 / 256;
+            let y_pos = (current_byte_position * 8 + bit) % 256;
 
             if (machine.cpu.memory[0x2400 + current_byte_position as usize] >> bit) & 0x01 != 0{ // If this pixel is on
 
-                if x_pos >= 192 && x_pos < 224{ // If the pixel is in the 'RED' range
+                if y_pos >= 192 && y_pos < 224{ // If the pixel is in the 'RED' range
 
                     machine.canvas.set_draw_color(Color::RGB(255, 0, 0));
 
                 }
-                else if (x_pos > 16 && x_pos <= 72) || (x_pos < 16 && y_pos >= 16 && y_pos < 134){ // If the pixel is in the 'GREEN' range
+                else if (y_pos > 16 && y_pos <= 72) || (y_pos < 16 && x_pos >= 16 && x_pos < 134){ // If the pixel is in the 'GREEN' range
 
                     machine.canvas.set_draw_color(Color::RGB(0, 255, 0));
 
@@ -235,13 +234,17 @@ pub fn draw(machine: &mut Machine){
 
             }
 
-            machine.canvas.draw_point(Point::new(y_pos, 255 - x_pos)).expect("Failed to draw window");
+            machine.canvas.draw_point(Point::new(x_pos, 255 - y_pos)).expect("Failed to draw window");
 
         }
 
     }
 
-    machine.canvas.set_draw_color(Color::RGB(0, 0, 255));
+    machine.canvas.set_draw_color(Color::RGB(255, 255, 255));
+
+    let window_size = machine.canvas.output_size().expect("Failed to read window size");
+
+    machine.canvas.set_scale(window_size.0 as f32 / 224.0, window_size.1 as f32 / 256.0).expect("Failed to set canvas scale");
 
     machine.canvas.present();
 

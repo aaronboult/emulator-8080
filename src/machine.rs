@@ -39,7 +39,11 @@ impl Machine{
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("Test Window", 128, 128).position_centered().build().expect("Failed to create window");
+        let window = video_subsystem.window("Test Window", 128, 128)
+                                        .position_centered()
+                                        .resizable()
+                                        .build()
+                                        .expect("Failed to create window");
 
         let mut setup_config = SetupConfiguration{
             input_handler: test::test_in,
@@ -54,15 +58,19 @@ impl Machine{
             sdl_context: sdl_context
         };
 
-        match game_id {
+        if !test{
 
-            0 => {
+            match game_id {
+    
+                0 => {
+    
+                    space_invaders::setup(&mut setup_config);
+    
+                }, // Space Invaders
+    
+                _ => panic!("Game ID is invalid"),
+            }
 
-                space_invaders::setup(&mut setup_config);
-
-            }, // Space Invaders
-
-            _ => panic!("Game ID is invalid"),
         }
     
         let mut new_arcade = Machine{
@@ -121,8 +129,6 @@ impl Machine{
                 cycle = 0;
 
                 (self.drawer)(self); // Draw the window
-
-                // self.cpu.debug_output();
 
             }
 
