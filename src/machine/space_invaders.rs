@@ -40,9 +40,9 @@ pub fn setup(setup_config: &mut SetupConfiguration){
         size: 0x800
     });
     
-    setup_config.ports[0] = 0b01110000;
+    setup_config.ports[0] = 0b00001110;
 
-    setup_config.ports[1] = 0b00010000;
+    setup_config.ports[1] = 0b00001000;
 
     setup_config.window.set_title("Space Invaders").expect("Failed to set window title");
 
@@ -78,13 +78,13 @@ fn key_event(machine: &mut Machine){
             },
     
             Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
-                machine.ports[1] |= 0b00100000; // Player 1 shoot
-                machine.ports[2] |= 0b00100000; // Player 2 shoot
+                machine.ports[1] |= 0b00100000; // Player 1 Left
+                machine.ports[2] |= 0b00100000; // Player 2 Left
             },
     
             Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
-                machine.ports[1] |= 0b01000000; // Player 1 shoot
-                machine.ports[2] |= 0b01000000; // Player 2 shoot
+                machine.ports[1] |= 0b01000000; // Player 1 Right
+                machine.ports[2] |= 0b01000000; // Player 2 Right
             },
 
 
@@ -103,13 +103,13 @@ fn key_event(machine: &mut Machine){
             },
     
             Event::KeyUp { keycode: Some(Keycode::Left), .. } => {
-                machine.ports[1] &= 0b11011111; // Player 1 shoot
-                machine.ports[2] &= 0b11011111; // Player 2 shoot
+                machine.ports[1] &= 0b11011111; // Player 1 Left
+                machine.ports[2] &= 0b11011111; // Player 2 Left
             },
     
             Event::KeyUp { keycode: Some(Keycode::Right), .. } => {
-                machine.ports[1] &= 0b10111111; // Player 1 shoot
-                machine.ports[2] &= 0b10111111; // Player 2 shoot
+                machine.ports[1] &= 0b10111111; // Player 1 Right
+                machine.ports[2] &= 0b10111111; // Player 2 Right
             },
 
             _ => {},
@@ -188,7 +188,7 @@ pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _p
 
         3 => {}, // Play Sound
 
-        4 => processor.custom_registers[1] = (processor.custom_registers[1] >> 8) | ((value as u16) << 8), // 
+        4 => processor.custom_registers[1] = (processor.custom_registers[1] >> 8) | ((value as u16) << 8), // Set the shift result
 
         5 => {}, // Play Sound
 
@@ -206,41 +206,36 @@ pub fn draw(machine: &mut Machine){
 
         for bit in (0..8).rev(){ // Read each bit from the byte, as each bit represents a pixel - start from the leftmost bit
 
-            let x_pos = current_byte_position * 8 / 256;
-            let y_pos = (current_byte_position * 8 + bit) % 256;
-
             if (machine.cpu.memory[0x2400 + current_byte_position as usize] >> bit) & 0x01 != 0{ // If this pixel is on
+
+                let x_pos = (current_byte_position * 8 + bit) / 256;
+                let y_pos = (current_byte_position * 8 + bit) % 256;
 
                 if y_pos >= 192 && y_pos < 224{ // If the pixel is in the 'RED' range
 
-                    machine.canvas.set_draw_color(Color::RGB(255, 0, 0));
+                    machine.canvas.set_draw_color(Color::RED);
 
                 }
                 else if (y_pos > 16 && y_pos <= 72) || (y_pos < 16 && x_pos >= 16 && x_pos < 134){ // If the pixel is in the 'GREEN' range
 
-                    machine.canvas.set_draw_color(Color::RGB(0, 255, 0));
+                    machine.canvas.set_draw_color(Color::GREEN);
 
                 }
                 else{ // The pixel is in the 'WHITE' range
 
-                    machine.canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    machine.canvas.set_draw_color(Color::WHITE);
 
                 }
 
-            }
-            else{
-
-                machine.canvas.set_draw_color(Color::RGB(0, 0, 0));
+                machine.canvas.draw_point(Point::new(x_pos, 255 - y_pos)).expect("Failed to draw window");
 
             }
-
-            machine.canvas.draw_point(Point::new(x_pos, 255 - y_pos)).expect("Failed to draw window");
 
         }
 
     }
 
-    machine.canvas.set_draw_color(Color::RGB(255, 255, 255));
+    machine.canvas.set_draw_color(Color::BLACK);
 
     let window_size = machine.canvas.output_size().expect("Failed to read window size");
 

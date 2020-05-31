@@ -110,7 +110,7 @@ impl Machine{
 
             (self.key_event_handler)(self);
 
-            if self.timestamp.elapsed().expect("Failed to calculate elapsed time").as_millis() >= 1/60{ // Mimmics running at 60Hz
+            if self.timestamp.elapsed().expect("Failed to calculate elapsed time").as_millis() > 1 / 60 * 1000{ // Mimmics running at 60Hz
 
                 self.timestamp = self.get_time();
 
