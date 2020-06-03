@@ -114,7 +114,7 @@ impl Machine{
 
                 self.timestamp = self.get_time();
 
-                while cycle <= (2_000_000 / 60) as u16{ // 2MHz / 60Hz
+                while cycle <= (2_000_000 / 60) as u16{ // The number of cycles that should execute per frame
 
                     saved_cycle_count = self.cpu.cycles_elapsed;
 

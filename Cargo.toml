@@ -7,17 +7,5 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[[machine]]
-name = "machine"
-path = "src/machine.rs"
-
-[[io_handlers]]
-name = "io_handlers"
-path = "src/io_handlers.rs"
-
-[[cpu]]
-name = "cpu"
-path = "src/cpu.rs"
-
 [dependencies]
 sdl2 = "0.34"

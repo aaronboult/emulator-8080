@@ -10,11 +10,21 @@ pub fn key_event(machine: &mut Machine){
 
         match event{
 
-            Event::KeyDown { keycode: Some(Keycode::D), .. } => machine.cpu.debug = !machine.cpu.debug,
+            Event::KeyDown { keycode: Some(Keycode::D), .. } => {
+                if machine.cpu.testing{
+                    machine.cpu.debug = !machine.cpu.debug;
+                }
+            },
 
             Event::Quit {..} |
     
-            Event::KeyDown { keycode: Some(Keycode::Escape), .. } => std::process::exit(0),
+            Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+
+                machine.cpu.logger.flush().expect("Failed to flush output buffer");
+
+                std::process::exit(0);
+
+            },
 
             _ => {},
 

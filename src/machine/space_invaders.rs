@@ -58,11 +58,55 @@ fn key_event(machine: &mut Machine){
 
         match event{
 
-            Event::KeyDown { keycode: Some(Keycode::D), .. } => machine.cpu.debug = !machine.cpu.debug,
+            Event::KeyDown { keycode: Some(Keycode::D), .. } => {
+                if machine.cpu.testing{
+                    machine.cpu.debug = !machine.cpu.debug;
+                }
+            },
 
             Event::Quit {..} |
     
-            Event::KeyDown { keycode: Some(Keycode::Escape), .. } => std::process::exit(0),
+            Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+
+                machine.cpu.logger.flush().expect("Failed to flush output buffer");
+
+                std::process::exit(0);
+            
+            },
+
+            Event::KeyDown { keycode: Some(Keycode::V), .. } => {
+
+                if machine.cpu.testing{
+
+                    // Dump the VRAM to the log file
+    
+                    let mut output: String = "Byte Addr 0x | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7\n\n".to_string();
+    
+                    for byte_pos in 0..7168{
+    
+                        let mut to_append = format!("    0x{:04x}   |", byte_pos);
+    
+                        for bit in 0..8{
+    
+                            to_append = format!("{} {} ", to_append, (machine.cpu.memory[0x2400 + byte_pos] >> bit) & 0x01);
+    
+                            if bit != 7{
+    
+                                to_append += "|";
+    
+                            }
+    
+                        }
+    
+                        output = format!("{}{}\n", output, to_append);
+    
+                    }
+    
+                    write!(machine.cpu.logger, "{}", output).expect("Failed to write to output buffer");
+
+                }
+
+            },
     
             Event::KeyDown { keycode: Some(Keycode::T), .. } => machine.ports[2] |= 0b00000100, // Tilt
     
@@ -120,15 +164,11 @@ fn key_event(machine: &mut Machine){
 
 }
 
-pub fn space_invaders_interrupt(machine: &mut Machine){
+fn space_invaders_interrupt(machine: &mut Machine){
 
     if machine.cpu.cycles_elapsed >= (2_000_000 / 60 / 2) as u16{
-
-        if machine.cpu.interrupt_enabled{
     
-            machine.cpu.generate_interrupt(); // Generate a video hardware interrupt
-    
-        }
+        machine.cpu.generate_interrupt();
         
         machine.cpu.cycles_elapsed -= (2_000_000 / 60 / 2) as u16;
 
@@ -138,7 +178,7 @@ pub fn space_invaders_interrupt(machine: &mut Machine){
 
 }
 
-pub fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8>) -> u8{
+fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8>) -> u8{
 
     /*
         Custom registers:
@@ -163,12 +203,12 @@ pub fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8
         _ => {},
 
     }
-
+    
     0
 
 }
 
-pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports: &Vec<u8>){
+fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports: &Vec<u8>){
 
     /*
         Custom registers:
@@ -198,7 +238,7 @@ pub fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _p
 
 }
 
-pub fn draw(machine: &mut Machine){
+fn draw(machine: &mut Machine){
     
     machine.canvas.clear();
 
@@ -208,8 +248,8 @@ pub fn draw(machine: &mut Machine){
 
             if (machine.cpu.memory[0x2400 + current_byte_position as usize] >> bit) & 0x01 != 0{ // If this pixel is on
 
-                let x_pos = (current_byte_position * 8 + bit) / 256;
-                let y_pos = (current_byte_position * 8 + bit) % 256;
+                let x_pos = ((current_byte_position * 8) + bit) / 256;
+                let y_pos = ((current_byte_position * 8) + bit) % 256;
 
                 if y_pos >= 192 && y_pos < 224{ // If the pixel is in the 'RED' range
 
@@ -227,7 +267,7 @@ pub fn draw(machine: &mut Machine){
 
                 }
 
-                machine.canvas.draw_point(Point::new(x_pos, 255 - y_pos)).expect("Failed to draw window");
+                machine.canvas.draw_point(Point::new(x_pos, 256 - y_pos)).expect("Failed to draw window");
 
             }
 

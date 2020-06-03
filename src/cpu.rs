@@ -33,7 +33,7 @@ pub struct Processor8080{
 
     flags: Flags,
 
-    pub interrupt_enabled: bool,
+    interrupt_enabled: bool,
     pub interrupt_value: u8,
 
     rom_size: u16,
@@ -43,7 +43,7 @@ pub struct Processor8080{
     input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8,
     output_handler: fn(&mut Self, u8, u8, &Vec<u8>),
 
-    testing: bool,
+    pub testing: bool,
     pub debug: bool,
 
     pub logger: std::boxed::Box<dyn std::io::Write>,
@@ -121,20 +121,23 @@ impl Processor8080{
 
         self.load_file("cpudiag.bin".to_string(), 0x100, 1453);
 
-        self.memory[368] = 0x7;
-
         // Skip DAA test
         self.memory[0x59C] = 0xC3;
         self.memory[0x59D] = 0xC2;
         self.memory[0x59E] = 0x05;
+
+        // Handle outputs - return instantly
+        self.memory[0x06] = 0xC9;
+
+        self.rom_size = 0;
     
-        while self.memory.len() < 0x4000{
+        while self.memory.len() < 0x10000{ // Initialize 64KiB of memory
+
             self.memory.push(0);
+
         }
 
         self.program_counter = 0x100;
-
-        self.rom_size = 1453;
 
         self.testing = true;
 
@@ -143,16 +146,16 @@ impl Processor8080{
     pub fn initialize(&mut self, files: Vec<FileToLoad>){
 
         for file in files{
-
+            
             self.load_file(file.name, file.offset, file.size);
 
         }
     
-        while self.memory.len() < 0x4000{
+        while self.memory.len() < 0x4000{ // Initialize 16KiB of memory
+            
             self.memory.push(0);
+
         }
-    
-        write!(self.logger, "{:?}\n", self.memory);
         
     }
 
@@ -179,6 +182,12 @@ impl Processor8080{
     }
 
     pub fn generate_interrupt(&mut self){
+
+        if !self.interrupt_enabled{
+
+            return;
+
+        }
     
         push_address_onto_stack(self, self.program_counter);
     
@@ -190,13 +199,87 @@ impl Processor8080{
     
     }
 
+    pub fn debug_output(&mut self){
+        
+        write!(self.logger, "\n\n==============\n\n").expect("Failed to write to output buffer");
+        
+        disassembler::check_opcode_8080(self.program_counter as usize, &self.memory, &mut self.logger);
+    
+        write!(self.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
+            self.memory[self.program_counter as usize],
+            self.memory[(self.program_counter + 1) as usize],
+            self.memory[(self.program_counter + 2) as usize],
+        ).expect("Failed to write to output buffer");
+    
+        write!(self.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
+            self.a, self.b, self.c, self.d, self.e, self.h, self.l
+        ).expect("Failed to write to output buffer");
+    
+        write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
+            self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
+        ).expect("Failed to write to output buffer");
+        
+        write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter).expect("Failed to write to output buffer");
+    
+        write!(self.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", self.stack_pointer).expect("Failed to write to output buffer");
+    
+    }
+
+    fn check_cpudiag_status(&mut self){
+
+        if self.program_counter == 5{
+    
+            if self.c == 9{
+
+                let mut offset: u16 = ((self.d as u16) << 8) | (self.e as u16);
+
+                let mut letter = self.memory[(offset + 3) as usize] as char;
+
+                let mut string: String = "".to_string();
+
+                while letter != '$'{
+
+                    string += &letter.to_string();
+
+                    offset += 1;
+
+                    letter = self.memory[(offset + 3) as usize] as char;
+
+                }
+
+                write!(self.logger, "{}", string).expect("Failed to write to output buffer");
+
+            }
+            else if self.c == 2{
+
+                write!(self.logger, "{}", self.e as char).expect("Failed to write to output buffer");
+
+            }
+
+        }
+        else if self.program_counter == 0{
+
+            self.logger.flush().expect("Failed to flush output buffer");
+
+            std::process::exit(0);
+
+        }
+
+    }
+
     pub fn emulate(&mut self, ports: &Vec<u8>){
+
+        if self.testing{
+
+            self.check_cpudiag_status();
+
+        }
     
         let opcode: u8 = self.memory[self.program_counter as usize];
         
         self.cycles_elapsed += self.opcode_cycle_length[opcode as usize];
 
-        if opcode != 0x00 && self.debug{
+        if opcode != 0x00 && self.debug{ // Don't display NOP instructions to avoid log clutter
 
             self.debug_output();
     
@@ -230,39 +313,19 @@ impl Processor8080{
             *               Store Register              *
             ********************************************/
             //#region
-            0x02 => {
-                let address = get_address_from_pair(&mut self.b, &mut self.c);
-                if address < self.rom_size{
-                    return;
-                }
-                self.memory[address as usize] = self.a;
-            }, // STAX B
-            0x12 => {
-                let address = get_address_from_pair(&mut self.d, &mut self.e);
-                if address < self.rom_size{
-                    return;
-                }
-                self.memory[address as usize] = self.a;
-            }, // STAX D
+            0x02 => write_to_memory(self, self.b, self.c, self.a), // STAX B
+            0x12 => write_to_memory(self, self.d, self.e, self.a), // STAX D
             0x32 => {
-                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
-                let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
-                if address < self.rom_size{
-                    return;
-                }
-                self.memory[address as usize] = self.a;
+                let first_byte = self.memory[(self.program_counter + 1) as usize];
+                let second_byte = self.memory[self.program_counter as usize];
+                write_to_memory(self, first_byte, second_byte, self.a);
                 self.program_counter += 2;
             }, // STA addr
             0x22 => {
-                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
-                let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
-                if address + 1 < self.rom_size{
-                    return;
-                }
-                self.memory[address as usize] = self.l;
-                self.memory[(address + 1) as usize] = self.h;
+                let first_byte = self.memory[(self.program_counter + 1) as usize];
+                let second_byte = self.memory[self.program_counter as usize];
+                write_to_memory(self, first_byte, second_byte + 1, self.h);
+                write_to_memory(self, first_byte, second_byte, self.l);
                 self.program_counter += 2;
             }, // SHLD addr
             0xEB => {
@@ -294,27 +357,27 @@ impl Processor8080{
             0x31 => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
                 self.stack_pointer = address;
                 self.program_counter += 2;
             }, // LXI SP,operand
             0x3A => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
                 self.a = self.memory[address as usize];
                 self.program_counter += 2;
             }, // LDA addr
             0x2A => {
                 let mut first_byte = self.memory[(self.program_counter + 1) as usize];
                 let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte);
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
                 self.h = self.memory[(address + 1) as usize];
                 self.l = self.memory[address as usize];
                 self.program_counter += 2;
             }, // LHLD addr
-            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c) as usize], // LDAX B
-            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e) as usize], // LDAX D
+            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c, (self.memory.len() - 1) as u16) as usize], // LDAX B
+            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e, (self.memory.len() - 1) as u16) as usize], // LDAX D
             //#endregion
     
     
@@ -328,7 +391,7 @@ impl Processor8080{
             0x43 => self.b = self.e, // MOV B,E
             0x44 => self.b = self.h, // MOV B,H
             0x45 => self.b = self.l, // MOV B,L
-            0x46 => self.b = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV B,(HL)
+            0x46 => self.b = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV B,(HL)
             0x47 => self.b = self.a, // MOV B,A
     
             0x48 => self.c = self.b, // MOV C,B
@@ -337,7 +400,7 @@ impl Processor8080{
             0x4B => self.c = self.e, // MOV C,E
             0x4C => self.c = self.h, // MOV C,H
             0x4D => self.c = self.l, // MOV C,L
-            0x4E => self.c = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV D,(HL)
+            0x4E => self.c = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV D,(HL)
             0x4F => self.c = self.a, // MOV C,A
     
             0x50 => self.d = self.b, // MOV D,B
@@ -346,7 +409,7 @@ impl Processor8080{
             0x53 => self.d = self.e, // MOV D,E
             0x54 => self.d = self.h, // MOV D,H
             0x55 => self.d = self.l, // MOV D,L
-            0x56 => self.d = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV D(HL)
+            0x56 => self.d = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV D(HL)
             0x57 => self.d = self.a, // MOV D,A
     
             0x58 => self.e = self.b, // MOV E,B
@@ -355,7 +418,7 @@ impl Processor8080{
             0x5B => {}, // MOV E,E - Does nothing
             0x5C => self.e = self.h, // MOV E,H
             0x5D => self.e = self.l, // MOV E,L
-            0x5E => self.e = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV E,(HL)
+            0x5E => self.e = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV E,(HL)
             0x5F => self.e = self.a, // MOV E,A
             
             0x60 => self.h = self.b, // MOV H,B
@@ -364,7 +427,7 @@ impl Processor8080{
             0x63 => self.h = self.e, // MOV H,E
             0x64 => {}, // MOV H,H - Does nothing
             0x65 => self.h = self.l, // MOV H,L
-            0x66 => self.h = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV H,(HL)
+            0x66 => self.h = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV H,(HL)
             0x67 => self.h = self.a, // MOV H,A
             
             0x68 => self.l = self.b, // MOV L,B
@@ -373,58 +436,16 @@ impl Processor8080{
             0x6B => self.l = self.e, // MOV L,E
             0x6C => self.l = self.h, // MOV L,H
             0x6D => {}, // MOV L,L - Does nothing
-            0x6E => self.l = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV L,(HL)
+            0x6E => self.l = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV L,(HL)
             0x6F => self.l = self.a, // MOV L,A
             
-            0x70 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.b;
-            }, // MOV (HL),B
-            0x71 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.c;
-            }, // MOV (HL),C
-            0x72 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.d;
-            }, // MOV (HL),D
-            0x73 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.e;
-            }, // MOV (HL),E
-            0x74 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.h;
-            }, // MOV (HL),H
-            0x75 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.l;
-            }, // MOV (HL),L
-            0x77 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                self.memory[address] = self.a;
-            }, // MOV (HL),A
+            0x70 => write_to_memory(self, self.h, self.l, self.b), // MOV (HL),B
+            0x71 => write_to_memory(self, self.h, self.l, self.c), // MOV (HL),C
+            0x72 => write_to_memory(self, self.h, self.l, self.d), // MOV (HL),D
+            0x73 => write_to_memory(self, self.h, self.l, self.e), // MOV (HL),E
+            0x74 => write_to_memory(self, self.h, self.l, self.h), // MOV (HL),H
+            0x75 => write_to_memory(self, self.h, self.l, self.l), // MOV (HL),L
+            0x77 => write_to_memory(self, self.h, self.l, self.a), // MOV (HL),A
             
             0x78 => self.a = self.b, // MOV A,B
             0x79 => self.a = self.c, // MOV A,C
@@ -432,7 +453,7 @@ impl Processor8080{
             0x7B => self.a = self.e, // MOV A,E
             0x7C => self.a = self.h, // MOV A,H
             0x7D => self.a = self.l, // MOV A,L
-            0x7E => self.a = self.memory[get_address_from_pair(&mut self.h, &mut self.l) as usize], // MOV A,(HL)
+            0x7E => self.a = self.memory[get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize], // MOV A,(HL)
             0x7F => {}, // MOV A,A - Does nothing
     
             0x06 => {
@@ -460,11 +481,7 @@ impl Processor8080{
                 self.program_counter += 1;
             }, // MVI L,D8
             0x36 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
-                if address < self.rom_size{
-                    return;
-                }
-                self.memory[address as usize] = self.memory[self.program_counter as usize];
+                write_to_memory(self, self.h, self.l, self.memory[self.program_counter as usize]);
                 self.program_counter += 1;
             }, // MVI M,D8
             0x3E => {
@@ -523,13 +540,11 @@ impl Processor8080{
                 self.l = answer as u8;
             }, // INR L
             0x34 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                let answer: u16 = (self.memory[address] as u16) + 1;
+                let answer: u16 = (self.memory[
+                    get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
+                ] as u16) + 1;
                 step_register_flags(self, answer);
-                self.memory[address] = answer as u8;
+                write_to_memory(self, self.h, self.l, answer as u8);
             }, // INR M
             0x3C => {
                 let answer: u16 = (self.a as u16) + 1;
@@ -574,13 +589,11 @@ impl Processor8080{
                 self.l = answer as u8;
             }, // DCR L
             0x35 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l) as usize;
-                if (address as u16) < self.rom_size{
-                    return;
-                }
-                let answer: u16 = (self.memory[address] as u32 + get_twos_complement(1) as u32) as u16;
+                let answer: u16 = (self.memory[
+                    get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
+                ] as u32 + get_twos_complement(1) as u32) as u16;
                 step_register_flags(self, answer);
-                self.memory[address] = answer as u8;
+                write_to_memory(self, self.h, self.l, answer as u8);
             }, // DCR M
             0x3D => {
                 let answer: u16 = (self.a as u32 + get_twos_complement(1) as u32) as u16;
@@ -653,7 +666,7 @@ impl Processor8080{
             0x84 => add(self, self.h, false), // ADD H
             0x85 => add(self, self.l, false), // ADD L
             0x86 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 add(self, self.memory[address as usize], false);
             }, // ADD M - From memory address
             0x87 => add(self, self.a, false), // ADD A
@@ -664,7 +677,7 @@ impl Processor8080{
             0x8C => add(self, self.h, self.flags.carry), // ADC H
             0x8D => add(self, self.l, self.flags.carry), // ADC L
             0x8E => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 add(self, self.memory[address as usize], self.flags.carry);
             }, // ADC M - From memory address
             0x8F => add(self, self.a, self.flags.carry), // ADC A
@@ -690,7 +703,7 @@ impl Processor8080{
             0x94 => subtract(self, self.h, false), // SUB H
             0x95 => subtract(self, self.l, false), // SUB L
             0x96 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 subtract(self, self.memory[address as usize], false);
             }, // SUB M - From memory address
             0x97 => subtract(self, self.a, false), // SUB A
@@ -701,7 +714,7 @@ impl Processor8080{
             0x9C => subtract(self, self.h, self.flags.carry), // SBB H
             0x9D => subtract(self, self.l, self.flags.carry), // SBB L
             0x9E => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 subtract(self, self.memory[address as usize], self.flags.carry);
             }, // SBB M - From memory address
             0x9F => subtract(self, self.a, self.flags.carry), // SBB A
@@ -821,7 +834,7 @@ impl Processor8080{
             0xBC => compare(self, self.h), // CMP H
             0xBD => compare(self, self.l), // CMP L
             0xBE => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 compare(self, self.memory[address as usize])
             }, // CMP M
             0xBF => compare(self, self.a), // CMP A
@@ -852,7 +865,7 @@ impl Processor8080{
             0xA4 => logical(self, self.h, |x,y| (x&y) as u16), // ANA H
             0xA5 => logical(self, self.l, |x,y| (x&y) as u16), // ANA L
             0xA6 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 logical(self, self.memory[address as usize], |x,y| (x&y) as u16)
             }, // ANA M
             0xA7 => logical(self, self.a, |x,y| (x&y) as u16), // ANA A
@@ -874,7 +887,7 @@ impl Processor8080{
             0xB4 => logical(self, self.h, |x,y| (x|y) as u16), // ORA H
             0xB5 => logical(self, self.l, |x,y| (x|y) as u16), // ORA L
             0xB6 => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 logical(self, self.memory[address as usize], |x,y| (x|y) as u16)
             }, // ORA M
             0xB7 => logical(self, self.a, |x,y| (x|y) as u16),  // ORA A
@@ -896,7 +909,7 @@ impl Processor8080{
             0xAC => logical(self, self.h, |x,y| (x^y) as u16), // XRA H
             0xAD => logical(self, self.l, |x,y| (x^y) as u16), // XRA L
             0xAE => {
-                let address = get_address_from_pair(&mut self.h, &mut self.l);
+                let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
                 logical(self, self.memory[address as usize], |x,y| (x^y) as u16)
             },  // XRA M
             0xAF => logical(self, self.a, |x,y| (x^y) as u16), // XRA A
@@ -942,35 +955,7 @@ impl Processor8080{
             *                Call Opcodes               *
             ********************************************/
             //#region
-            0xCD => { // During the CPUDIAG test, a call to 0x05 is used to attempt to print information, so that behaviour is replicated here
-                if self.testing{
-                    let addr = ((self.memory[(self.program_counter + 1) as usize] as u16) << 8) | (self.memory[self.program_counter as usize] as u16);
-                    if addr == 5{
-                        if self.c == 9{
-                            let mut offset: u16 = ((self.d as u16) << 8) | (self.e as u16);
-                            let mut letter = self.memory[(offset + 3) as usize] as char;
-                            let mut string: String = "".to_string();
-                            while letter != '$'{
-                                string += &letter.to_string();
-                                offset += 1;
-                                letter = self.memory[(offset + 3) as usize] as char;
-                            }
-                            if string != " CPU HAS FAILED! ERROR EXIT="{
-                                println!("{}", string);
-                            }
-                        }
-                    }
-                    else if addr == 0{
-                        panic!("Just exiting");
-                    }
-                    else{
-                        call(self, true);
-                    }
-                }
-                else{
-                    call(self, true);
-                }
-            }, // CALL addr
+            0xCD => call(self, true), // CALL addr
             0xC4 => call(self, !self.flags.zero), // CNZ addr - If the zero bit is zero
             0xCC => call(self, self.flags.zero), // CZ addr - If the zero bit is one
             0xD4 => call(self, !self.flags.carry), // CNC addr
@@ -980,8 +965,8 @@ impl Processor8080{
             0xF4 => call(self, !self.flags.sign), // CP addr - Positive
             0xFC => call(self, self.flags.sign), // CM addr - Minus
             //#endregion
-    
-    
+
+
             /********************************************
             *                Jump Opcodes               *
             ********************************************/
@@ -995,54 +980,28 @@ impl Processor8080{
             0xEA => jump(self, self.flags.parity), // JPE addr - Parity even
             0xF2 => jump(self, !self.flags.sign), // JP addr - Positive
             0xFA => jump(self, self.flags.sign), // JM addr - Minus
-            0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l), // PCHL
+            0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16), // PCHL
             //#endregion
     
             _ => {
-                write!(self.logger, "Unimplemented Opcode:\n\tDenary: {0}\n\tHex: {0:x}\n", opcode);
+                write!(self.logger, "Unimplemented Opcode:\n\tDenary: {0}\n\tHex: {0:x}\n", opcode).expect("Failed to write to output buffer");
                 self.debug_output();
                 unimplemented_opcode()
             },
     
         }
     
-        if self.stack_pointer < self.rom_size || self.stack_pointer >= self.memory.len() as u16{ // Ensuring ROM is not overwritten
-    
+        if self.stack_pointer < self.rom_size || self.stack_pointer >= (self.memory.len() - 1) as u16{ // Ensuring ROM is not overwritten
+            
             self.stack_pointer = 0;
     
         }
     
-        if self.program_counter >= 0x4000{ // Preventing the program from trying to read outside the size of memory
+        if self.program_counter >= (self.memory.len() - 1) as u16{ // Preventing the program from trying to read outside the size of memory
     
             self.program_counter = 0;
     
         }
-    
-    }
-
-    pub fn debug_output(&mut self){
-        
-        write!(self.logger, "\n\n==============\n\n");
-        
-        disassembler::check_opcode_8080(self.program_counter as usize, &self.memory, &mut self.logger);
-    
-        write!(self.logger, "Memory:\n\t0x{:x}\n\t0x{:x}\n\t0x{:x}\n", 
-            self.memory[self.program_counter as usize],
-            self.memory[(self.program_counter + 1) as usize],
-            self.memory[(self.program_counter + 2) as usize],
-        );
-    
-        write!(self.logger, "Registers:\n\tA: 0x{:x}\n\tB: 0x{:x}\n\tC: 0x{:x}\n\tD: 0x{:x}\n\tE: 0x{:x}\n\tH: 0x{:x}\n\tL: 0x{:x}\n",
-            self.a, self.b, self.c, self.d, self.e, self.h, self.l
-        );
-    
-        write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
-            self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
-        );
-        
-        write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter);
-    
-        write!(self.logger, "Stack Pointer:\n\tDecimal: {0}\n\tHex: {0:x}\nMisc:\n\n", self.stack_pointer);
     
     }
 
@@ -1065,12 +1024,12 @@ fn seperate_16bit_pair(pair: u16) -> (u8, u8) {
 }
 
 // byte_1 is highest order bits, byte_2 is lowest order bits
-fn get_address_from_pair(byte_1: &mut u8, byte_2: &mut u8) -> u16 {
+fn get_address_from_pair(byte_1: &mut u8, byte_2: &mut u8, max_memory_index: u16) -> u16 {
 
-    let mut address = ((*byte_1 as u16) << 8) | (*byte_2 as u16);
+    let mut address: u16 = ((*byte_1 as u16) << 8) | (*byte_2 as u16);
 
-    if address >= 0x4000{
-
+    if address >= max_memory_index{
+        
         *byte_1 = 0;
 
         *byte_2 = 0;
@@ -1125,7 +1084,7 @@ fn subtract(processor: &mut Processor8080, byte: u8, carry: bool){
 
 fn double_add(processor: &mut Processor8080, byte_a: u8, byte_b: u8){
 
-    let new_address = ((processor.h as u32) << 8) | (processor.l as u32) + ((byte_a as u32) << 8) | (byte_b as u32);
+    let new_address: u32 = (((processor.h as u32) << 8) | (processor.l as u32)) + (((byte_a as u32) << 8) | (byte_b as u32));
 
     processor.flags.carry = new_address > 0xffff;
 
@@ -1210,6 +1169,26 @@ fn push_onto_stack(processor: &mut Processor8080, byte_1: u8, byte_2: u8){
     processor.stack_pointer = ((processor.stack_pointer as u32) + (get_twos_complement(2) as u32)) as u16;
 
 }
+
+fn write_to_memory(processor: &mut Processor8080, byte_1: u8, byte_2: u8, value: u8){
+
+    let mut address: u16 = get_address_from_pair(&mut {byte_1}, &mut {byte_2}, (processor.memory.len() - 1) as u16);
+
+    if address < processor.rom_size{
+
+        return;
+
+    }
+
+    if address >= 0x4000 && address < 0x6000{
+
+        address -= 0x2000;
+
+    }
+
+    processor.memory[address as usize] = value;
+
+}
 //#endregion
 
 
@@ -1268,6 +1247,7 @@ fn jump(processor: &mut Processor8080, flag: bool){
         processor.program_counter = get_address_from_pair(
             &mut {processor.memory[(processor.program_counter + 1) as usize]},
             &mut {processor.memory[processor.program_counter as usize]},
+            (processor.memory.len() - 1) as u16,
         );
 
     }
@@ -1288,6 +1268,7 @@ fn call(processor: &mut Processor8080, flag: bool){
         processor.program_counter = get_address_from_pair(
             &mut {processor.memory[(processor.program_counter + 1) as usize]},
             &mut {processor.memory[processor.program_counter as usize]},
+            (processor.memory.len() - 1) as u16,
         );
 
     }
@@ -1306,6 +1287,7 @@ fn ret(processor: &mut Processor8080, flag: bool){
         processor.program_counter = get_address_from_pair(
             &mut {processor.memory[(processor.stack_pointer + 1) as usize]},
             &mut {processor.memory[processor.stack_pointer as usize]},
+            (processor.memory.len() - 1) as u16,
         );
 
         processor.stack_pointer += 2;
