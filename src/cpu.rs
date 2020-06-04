@@ -1,5 +1,7 @@
 mod disassembler;
 
+use crate::machine::AudioController;
+
 use std::mem;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
@@ -41,7 +43,7 @@ pub struct Processor8080{
     opcode_cycle_length: [u16; 256],
 
     input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8,
-    output_handler: fn(&mut Self, u8, u8, &Vec<u8>),
+    output_handler: fn(&mut Self, u8, u8, &mut Vec<u8>, &mut AudioController),
 
     pub testing: bool,
     pub debug: bool,
@@ -60,7 +62,11 @@ struct Flags{
 
 impl Processor8080{
 
-    pub fn new(input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8, output_handler: fn(&mut Self, u8, u8, &Vec<u8>), log_to_file: bool) -> Self{
+    pub fn new(
+        input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8, 
+        output_handler: fn(&mut Self, u8, u8, &mut Vec<u8>, &mut AudioController), 
+        log_to_file: bool
+    ) -> Self{
 
         let logger;
 
@@ -267,7 +273,7 @@ impl Processor8080{
 
     }
 
-    pub fn emulate(&mut self, ports: &Vec<u8>){
+    pub fn emulate(&mut self, ports: &mut Vec<u8>, audio_controller: &mut AudioController){
 
         if self.testing{
 
@@ -297,7 +303,7 @@ impl Processor8080{
             0xF3 => self.interrupt_enabled = false, // DI
             0xFB => self.interrupt_enabled = true, // EI
             0xD3 => {
-                (self.output_handler)(self, self.memory[self.program_counter as usize], self.a, ports);
+                (self.output_handler)(self, self.memory[self.program_counter as usize], self.a, ports, audio_controller);
                 self.program_counter += 1;
             }, // OUT
             0xDB => {

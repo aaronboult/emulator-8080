@@ -4,6 +4,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::Point;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::mixer::Chunk;
 
 pub fn setup(setup_config: &mut SetupConfiguration){
     
@@ -39,6 +40,28 @@ pub fn setup(setup_config: &mut SetupConfiguration){
         offset: 0x1800,
         size: 0x800
     });
+
+    let track_names = vec![
+        "ufo", // UFO
+        "shoot", // Shoot
+        "player_killed", // Player die
+        "invader_killed", // Invader die
+        "fleet_move_1", // Fleet move 1
+        "fleet_move_2", // Fleet move 2
+        "fleet_move_3", // Fleet move 3
+        "fleet_move_4", // Fleet move 4
+        "ufo_hit", // UFO hit
+    ];
+
+    for (index, track_name) in track_names.iter().enumerate(){
+
+        setup_config.audio_tracks.push(
+            Chunk::from_file(format!("space-invaders-source/sounds/{}.wav", track_name)).expect("Failed to load audio file")
+        );
+
+        setup_config.audio_tracks[index].set_volume(64);
+
+    }
     
     setup_config.ports[0] = 0b00001110;
 
@@ -64,11 +87,19 @@ fn key_event(machine: &mut Machine){
                 }
             },
 
+            Event::KeyDown { keycode: Some(Keycode::Up), .. } => machine.audio_controller.volume_up(),
+
+            Event::KeyDown { keycode: Some(Keycode::Down), .. } => machine.audio_controller.volume_down(),
+
+            Event::KeyDown { keycode: Some(Keycode::M), .. } => machine.audio_controller.toggle_mute(),
+
             Event::Quit {..} |
     
             Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
 
                 machine.cpu.logger.flush().expect("Failed to flush output buffer");
+
+                machine.audio_controller.close();
 
                 std::process::exit(0);
             
@@ -188,7 +219,7 @@ fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8>) -
 
     if processor.custom_registers.len() == 0{
 
-        processor.custom_registers = vec![0, 0];
+        processor.custom_registers = vec![0; 4];
 
     }
 
@@ -208,7 +239,7 @@ fn space_invaders_in(processor: &mut Processor8080, port: u8, ports: &Vec<u8>) -
 
 }
 
-fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports: &Vec<u8>){
+fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, ports: &mut Vec<u8>, audio_controller: &mut AudioController){
 
     /*
         Custom registers:
@@ -218,7 +249,7 @@ fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports
 
     if processor.custom_registers.len() == 0{
 
-        processor.custom_registers = vec![0, 0];
+        processor.custom_registers = vec![0; 4];
 
     }
 
@@ -226,13 +257,49 @@ fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, _ports
 
         2 => processor.custom_registers[0] = (value & 0b111) as u16, // Set the shif amount to the last 3 bits of the provided value
 
-        3 => {}, // Play Sound
+        3 => {
+
+            play_audio(value, ports[3], 0b00000001, 0, audio_controller); // UFO
+
+            play_audio(value, ports[3], 0b00000010, 1, audio_controller); // Shoot
+
+            play_audio(value, ports[3], 0b00000100, 2, audio_controller); // Player die
+
+            play_audio(value, ports[3], 0b00001000, 3, audio_controller); // Invader die
+
+            ports[3] = value;
+
+        }, // Play Sound
 
         4 => processor.custom_registers[1] = (processor.custom_registers[1] >> 8) | ((value as u16) << 8), // Set the shift result
 
-        5 => {}, // Play Sound
+        5 => {
+
+            play_audio(value, ports[5], 0b00000001, 4, audio_controller); // Fleet move 1
+            
+            play_audio(value, ports[5], 0b00000010, 5, audio_controller); // Fleet move 2
+
+            play_audio(value, ports[5], 0b00000100, 6, audio_controller); // Fleet move 3
+
+            play_audio(value, ports[5], 0b00001000, 7, audio_controller); // Fleet move 4
+
+            play_audio(value, ports[5], 0b00010000, 8, audio_controller); // UFO hit
+
+            ports[5] = value;
+
+        }, // Play Sound
 
         _ => {},
+
+    }
+
+}
+
+fn play_audio(value: u8, old_value: u8, and_value: u8, sound_index: u8, audio_controller: &mut AudioController){
+
+    if value & and_value != 0 && !(old_value & and_value) != 0{
+
+        audio_controller.play_track(sound_index);
 
     }
 

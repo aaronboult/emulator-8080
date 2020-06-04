@@ -22,6 +22,8 @@ pub fn key_event(machine: &mut Machine){
 
                 machine.cpu.logger.flush().expect("Failed to flush output buffer");
 
+                machine.audio_controller.close();
+
                 std::process::exit(0);
 
             },
@@ -46,7 +48,7 @@ pub fn test_in(_processor: &mut Processor8080, _port: u8, _ports: &Vec<u8>) -> u
 
 }
 
-pub fn test_out(_processor: &mut Processor8080, _port: u8, _value: u8, _ports: &Vec<u8>){
+pub fn test_out(_processor: &mut Processor8080, _port: u8, _value: u8, _ports: &mut Vec<u8>, _audio_controller: &mut AudioController){
 
 }
 

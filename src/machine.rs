@@ -7,6 +7,10 @@ mod test;
 
 use std::time::SystemTime;
 
+use sdl2::mixer;
+use mixer::{Chunk, Channel};
+
+
 pub struct Machine{
     pub cpu: Processor8080,
     ports: Vec<u8>,
@@ -17,11 +21,12 @@ pub struct Machine{
 
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
     pub sdl_context: sdl2::Sdl,
+    pub audio_controller: AudioController,
 }
 
 pub struct SetupConfiguration{
     input_handler: fn(&mut Processor8080, u8, &Vec<u8>) -> u8,
-    output_handler: fn(&mut Processor8080, u8, u8, &Vec<u8>),
+    output_handler: fn(&mut Processor8080, u8, u8, &mut Vec<u8>, &mut AudioController),
     key_event_handler: fn(&mut Machine),
     interrupt_handler: fn(&mut Machine),
     drawer: fn(&mut Machine),
@@ -30,14 +35,20 @@ pub struct SetupConfiguration{
 
     window: sdl2::video::Window,
     sdl_context: sdl2::Sdl,
+
+    audio_tracks: Vec<Chunk>,
 }
 
 impl Machine{
 
     pub fn new(game_id: u8, log_to_file: bool, test: bool) -> Machine{
         
-        let sdl_context = sdl2::init().unwrap();
-        let video_subsystem = sdl_context.video().unwrap();
+        let sdl_context = sdl2::init().expect("Failed to initialize SDL2");
+        let video_subsystem = sdl_context.video().expect("Failed to retrieve SDL2 video subsystem");
+
+        mixer::init(mixer::InitFlag::all()).expect("Failed to initialize audio mixer");
+
+        mixer::open_audio(mixer::DEFAULT_FREQUENCY, mixer::DEFAULT_FORMAT, 8, 1024).expect("Failed to open audio mixer");
 
         let window = video_subsystem.window("Test Window", 128, 128)
                                         .position_centered()
@@ -55,7 +66,9 @@ impl Machine{
             ports: vec![0; 256],
 
             window: window,
-            sdl_context: sdl_context
+            sdl_context: sdl_context,
+
+            audio_tracks: vec![],
         };
 
         if !test{
@@ -83,6 +96,8 @@ impl Machine{
 
             canvas: setup_config.window.into_canvas().build().expect("Failed to create canvas"),
             sdl_context: setup_config.sdl_context,
+
+            audio_controller: AudioController::new(setup_config.audio_tracks),
         };
     
         if test{
@@ -118,7 +133,7 @@ impl Machine{
 
                     saved_cycle_count = self.cpu.cycles_elapsed;
 
-                    self.cpu.emulate(&self.ports);
+                    self.cpu.emulate(&mut self.ports, &mut self.audio_controller);
 
                     cycle += self.cpu.cycles_elapsed - saved_cycle_count;
         
@@ -136,11 +151,11 @@ impl Machine{
 
     }
 
-    pub fn _emulate_n(&mut self, n: usize){
+    pub fn emulate_n(&mut self, n: usize){
 
         for _ in 0..n{
 
-            self.cpu.emulate(&self.ports);
+            self.cpu.emulate(&mut self.ports, &mut self.audio_controller);
 
         }
 
@@ -149,6 +164,110 @@ impl Machine{
     pub fn get_time(&self) -> SystemTime{
 
         SystemTime::now()
+
+    }
+
+}
+
+#[derive(Default)]
+pub struct AudioController{
+    audio_tracks: Vec<Chunk>,
+    current_volume: i32,
+    previous_volume: i32,
+}
+
+impl AudioController{
+
+    fn new(audio_tracks: Vec<Chunk>) -> Self{
+
+        let mut audio_controller = AudioController{
+            audio_tracks: audio_tracks,
+            current_volume: 26,
+            previous_volume: 26,
+        };
+
+        audio_controller.set_global_volume(26);
+
+        audio_controller
+
+    }
+
+    pub fn close(&mut self){
+
+        mixer::close_audio();
+
+    }
+
+    pub fn play_track(&mut self, track_index: u8){
+
+        if mixer::get_playing_channels_number() != 8{
+
+            Channel::play(Channel::all(), &self.audio_tracks[track_index as usize], 1).expect("Failed to play audio track");
+
+        }
+
+    }
+
+    fn set_global_volume(&mut self, volume: i32){
+        
+        for chunk in self.audio_tracks.iter_mut(){
+
+            chunk.set_volume(volume);
+
+        }
+
+        for channel_index in 0..8{
+
+            Channel(channel_index).set_volume(volume);
+
+        }
+
+    }
+
+    pub fn volume_up(&mut self){
+
+        if self.current_volume < 128{
+
+            self.set_global_volume(self.current_volume + 1);
+
+            self.current_volume += 1;
+
+            self.previous_volume = self.current_volume;
+
+        }
+
+    }
+
+    pub fn volume_down(&mut self){
+
+        if self.current_volume > 0{
+
+            self.set_global_volume(self.current_volume - 1);
+
+            self.current_volume -= 1;
+
+            self.previous_volume = self.current_volume;
+
+        }
+
+    }
+
+    pub fn toggle_mute(&mut self){
+
+        if self.current_volume == self.previous_volume{ // If the volume should be muted
+
+            self.set_global_volume(0);
+
+            self.current_volume = 0;
+
+        }
+        else{ // If the volume should be unmuted
+
+            self.set_global_volume(self.previous_volume);
+
+            self.current_volume = self.previous_volume;
+
+        }
 
     }
 
