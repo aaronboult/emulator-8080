@@ -1,9 +1,9 @@
 extern crate sdl2;
 
-use crate::cpu::*;
-
 mod space_invaders;
 mod test;
+
+use crate::cpu::*;
 
 use std::time::SystemTime;
 
@@ -151,6 +151,7 @@ impl Machine{
 
     }
 
+    #[allow(dead_code)]
     pub fn emulate_n(&mut self, n: usize){
 
         for _ in 0..n{

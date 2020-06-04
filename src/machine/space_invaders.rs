@@ -7,6 +7,23 @@ use sdl2::keyboard::Keycode;
 use sdl2::mixer::Chunk;
 
 pub fn setup(setup_config: &mut SetupConfiguration){
+
+    println!("\n\n\n\
+        Machine Interaction:\n\n\t\
+            Escape Key  -> Close Emulator\n\t\
+            T Key       -> Tilt Machine\n\t\
+            C Key       -> Input Coin\n\t\
+            1 Key       -> Player 1 Ready\n\t\
+            2 Key       -> Player 2 Ready\n\n\
+        Volume Controls:\n\n\t\
+            Up Arrow    -> Volume Up\n\t\
+            Down Arrow  -> Volume Down\n\t\
+            M Key       -> Toggle Mute\n\n\
+        Controls:\n\n\t\
+            Left Arrow  -> Move Left\n\t\
+            Right Arrow -> Move Right\n\t\
+            Spacebar    -> Shoot
+    ");
     
     setup_config.input_handler = space_invaders_in;
     setup_config.output_handler = space_invaders_out;
