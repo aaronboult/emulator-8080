@@ -57,16 +57,16 @@ struct Flags{
     sign: bool, // True if negative
     parity: bool, // True if even
     carry: bool,
-    // auxiliary_carry: bool,
+    auxiliary_carry: bool,
 }
 
 impl Processor8080{
 
     pub fn new(
-        input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8, 
-        output_handler: fn(&mut Self, u8, u8, &mut Vec<u8>, &mut AudioController), 
-        log_to_file: bool
-    ) -> Self{
+            input_handler: fn(&mut Self, u8, &Vec<u8>) -> u8, 
+            output_handler: fn(&mut Self, u8, u8, &mut Vec<u8>, &mut AudioController), 
+            log_to_file: bool
+        ) -> Self{
 
         let logger;
 
@@ -128,9 +128,9 @@ impl Processor8080{
         self.load_file("cpudiag.bin".to_string(), 0x100, 1453);
 
         // Skip DAA test
-        self.memory[0x59C] = 0xC3;
-        self.memory[0x59D] = 0xC2;
-        self.memory[0x59E] = 0x05;
+        // self.memory[0x59C] = 0xC3;
+        // self.memory[0x59D] = 0xC2;
+        // self.memory[0x59E] = 0x05;
 
         // Handle outputs - return instantly
         self.memory[0x06] = 0xC9;
@@ -310,83 +310,34 @@ impl Processor8080{
                 self.a = (self.input_handler)(self, self.memory[self.program_counter as usize], ports);
                 self.program_counter += 1;
             }, // IN
-            0x27 => {}, // DAA
+            0x27 => {
+                if self.a & 0x0f > 9 || self.flags.auxiliary_carry{
+                    self.flags.auxiliary_carry = ((self.a & 0x0f) + 6) & 0x10 != 0; // Clear the higher four bits, add 6 then check for carry
+                    self.a = (self.a as u16 + 6) as u8;
+                }
+                if (self.a & 0xf0) >> 4 > 9 || self.flags.carry{
+                    let result = (((self.a as u16 & 0xf0) >> 4) + 6) << 4 | (self.a & 0x0f) as u16; // Add 6 to the higher four bits, then place the lower four bits back on
+                    self.flags.carry = result & 0xff00 != 0 || self.flags.carry; // If there is a carry out of the higher four bits or the carry flag is set
+                    self.a = result as u8;
+                }
+                self.flags.zero = self.a == 0;
+                self.flags.sign = self.a & 0x80 != 0;
+                self.flags.parity = check_parity(self.a as u16);
+
+            }, // DAA
             0x76 => panic!("Halting"), // HLT
             //#endregion
-    
-    
-            /********************************************
-            *               Store Register              *
-            ********************************************/
-            //#region
-            0x02 => write_to_memory(self, self.b, self.c, self.a), // STAX B
-            0x12 => write_to_memory(self, self.d, self.e, self.a), // STAX D
-            0x32 => {
-                let first_byte = self.memory[(self.program_counter + 1) as usize];
-                let second_byte = self.memory[self.program_counter as usize];
-                write_to_memory(self, first_byte, second_byte, self.a);
-                self.program_counter += 2;
-            }, // STA addr
-            0x22 => {
-                let first_byte = self.memory[(self.program_counter + 1) as usize];
-                let second_byte = self.memory[self.program_counter as usize];
-                write_to_memory(self, first_byte, second_byte + 1, self.h);
-                write_to_memory(self, first_byte, second_byte, self.l);
-                self.program_counter += 2;
-            }, // SHLD addr
-            0xEB => {
-                mem::swap(&mut self.h, &mut self.d);
-                mem::swap(&mut self.l, &mut self.e);
-            }, // XCHG
-            //endregion
-    
+                
     
             /********************************************
-            *               Load Register               *
+            *                   Carry                   *
             ********************************************/
             //#region
-            0x01 => {
-                self.b = self.memory[(self.program_counter + 1) as usize];
-                self.c = self.memory[self.program_counter as usize];
-                self.program_counter += 2;
-            }, // LXI B,operand
-            0x11 => {
-                self.d = self.memory[(self.program_counter + 1) as usize];
-                self.e = self.memory[self.program_counter as usize];
-                self.program_counter += 2;
-            }, // LXI D,operand
-            0x21 => {
-                self.h = self.memory[(self.program_counter + 1) as usize];
-                self.l = self.memory[self.program_counter as usize];
-                self.program_counter += 2;
-            }, // LXI H,operand
-            0x31 => {
-                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
-                let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
-                self.stack_pointer = address;
-                self.program_counter += 2;
-            }, // LXI SP,operand
-            0x3A => {
-                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
-                let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
-                self.a = self.memory[address as usize];
-                self.program_counter += 2;
-            }, // LDA addr
-            0x2A => {
-                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
-                let mut second_byte = self.memory[self.program_counter as usize];
-                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
-                self.h = self.memory[(address + 1) as usize];
-                self.l = self.memory[address as usize];
-                self.program_counter += 2;
-            }, // LHLD addr
-            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c, (self.memory.len() - 1) as u16) as usize], // LDAX B
-            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e, (self.memory.len() - 1) as u16) as usize], // LDAX D
+            0x37 => self.flags.carry = true, // STC
+            0x3F => self.flags.carry = !self.flags.carry, // CMC
             //#endregion
-    
-    
+            
+
             /********************************************
             *                Move Opcodes               *
             ********************************************/
@@ -496,65 +447,182 @@ impl Processor8080{
             }, // MVI A,D8
             //#endregion
     
-    
+
             /********************************************
-            *                 Double Add                *
+            *               Stack Opcodes               *
             ********************************************/
             //#region
-            0x09 => double_add(self, self.b, self.c), // DAD B
-            0x19 => double_add(self, self.d, self.e), // DAD D
-            0x29 => double_add(self, self.h, self.l), // DAD H
-            0x39 => {
-                let stack_pointer_split = seperate_16bit_pair(self.stack_pointer);
-                double_add(self, stack_pointer_split.0, stack_pointer_split.1);
-            }, // DAD SP
+            0xC5 => push_onto_stack(self, self.b, self.c), // PUSH B
+            0xD5 => push_onto_stack(self, self.d, self.e), // PUSH D
+            0xE5 => push_onto_stack(self, self.h, self.l), // PUSH H
+            0xF5 => push_onto_stack(self, self.a, {
+                // Format: S Z 0 AC 0 P 1 C
+                let mut flags: u8 = 0b00000010;
+                if self.flags.sign{
+                    flags = flags | 0b10000000;
+                }
+                if self.flags.zero{
+                    flags = flags | 0b01000000;
+                }
+                if self.flags.parity{
+                    flags = flags | 0b00000100;
+                }
+                if self.flags.carry{
+                    flags = flags | 0b00000001;
+                }
+                flags
+            }), // PUSH PSW
+            0xC1 => {
+                self.b = self.memory[(self.stack_pointer + 1) as usize];
+                self.c = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP B
+            0xD1 => {
+                self.d = self.memory[(self.stack_pointer + 1) as usize];
+                self.e = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP D
+            0xE1 => {
+                self.h = self.memory[(self.stack_pointer + 1) as usize];
+                self.l = self.memory[self.stack_pointer as usize];
+                self.stack_pointer += 2;
+            }, // POP H
+            0xF1 => {
+                // Format: S Z 0 AC 0 P 1 C
+                self.a = self.memory[(self.stack_pointer + 1) as usize];
+                let flag_values = self.memory[self.stack_pointer as usize];
+                self.flags.sign = flag_values & 0b10000000 != 0;
+                self.flags.zero = flag_values & 0b01000000 != 0;
+                self.flags.parity = flag_values & 0b00000100 != 0;
+                self.flags.carry = flag_values & 0b00000001 != 0;
+                self.stack_pointer += 2;
+            }, // POP PSW
+            0xF9 => self.stack_pointer = ((self.h as u16) << 8) | (self.l as u16), // SPHL
+            0xE3 => {
+                mem::swap(&mut self.h, &mut self.memory[(self.stack_pointer + 1) as usize]);
+                mem::swap(&mut self.l, &mut self.memory[self.stack_pointer as usize]);
+            }, // XTHL
             //#endregion
+
+    
+            /********************************************
+            *               Store Register              *
+            ********************************************/
+            //#region
+            0x02 => write_to_memory(self, self.b, self.c, self.a), // STAX B
+            0x12 => write_to_memory(self, self.d, self.e, self.a), // STAX D
+            0x32 => {
+                let first_byte = self.memory[(self.program_counter + 1) as usize];
+                let second_byte = self.memory[self.program_counter as usize];
+                write_to_memory(self, first_byte, second_byte, self.a);
+                self.program_counter += 2;
+            }, // STA addr
+            0x22 => {
+                let first_byte = self.memory[(self.program_counter + 1) as usize];
+                let second_byte = self.memory[self.program_counter as usize];
+                write_to_memory(self, first_byte, second_byte + 1, self.h);
+                write_to_memory(self, first_byte, second_byte, self.l);
+                self.program_counter += 2;
+            }, // SHLD addr
+            0xEB => {
+                mem::swap(&mut self.h, &mut self.d);
+                mem::swap(&mut self.l, &mut self.e);
+            }, // XCHG
+            //endregion
     
     
+            /********************************************
+            *               Load Register               *
+            ********************************************/
+            //#region
+            0x01 => {
+                self.b = self.memory[(self.program_counter + 1) as usize];
+                self.c = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI B,operand
+            0x11 => {
+                self.d = self.memory[(self.program_counter + 1) as usize];
+                self.e = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI D,operand
+            0x21 => {
+                self.h = self.memory[(self.program_counter + 1) as usize];
+                self.l = self.memory[self.program_counter as usize];
+                self.program_counter += 2;
+            }, // LXI H,operand
+            0x31 => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
+                self.stack_pointer = address;
+                self.program_counter += 2;
+            }, // LXI SP,operand
+            0x3A => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
+                self.a = self.memory[address as usize];
+                self.program_counter += 2;
+            }, // LDA addr
+            0x2A => {
+                let mut first_byte = self.memory[(self.program_counter + 1) as usize];
+                let mut second_byte = self.memory[self.program_counter as usize];
+                let address = get_address_from_pair(&mut first_byte, &mut second_byte, (self.memory.len() - 1) as u16);
+                self.h = self.memory[(address + 1) as usize];
+                self.l = self.memory[address as usize];
+                self.program_counter += 2;
+            }, // LHLD addr
+            0x0A => self.a = self.memory[get_address_from_pair(&mut self.b, &mut self.c, (self.memory.len() - 1) as u16) as usize], // LDAX B
+            0x1A => self.a = self.memory[get_address_from_pair(&mut self.d, &mut self.e, (self.memory.len() - 1) as u16) as usize], // LDAX D
+            //#endregion
+
+
             /********************************************
             *                Inc Register               *
             ********************************************/
             //#region
             0x04 => {
                 let answer: u16 = (self.b as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.b);
                 self.b = answer as u8;
             }, // INR B
             0x0C => {
                 let answer: u16 = (self.c as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.c);
                 self.c = answer as u8;
             }, // INR C
             0x14 => {
                 let answer: u16 = (self.d as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.d);
                 self.d = answer as u8;
             }, // INR D
             0x1C => {
                 let answer: u16 = (self.e as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.e);
                 self.e = answer as u8;
             }, // INR E
             0x24 => {
                 let answer: u16 = (self.h as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.h);
                 self.h = answer as u8;
             }, // INR H
             0x2C => {
                 let answer: u16 = (self.l as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.l);
                 self.l = answer as u8;
             }, // INR L
             0x34 => {
                 let answer: u16 = (self.memory[
                     get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
                 ] as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.memory[
+                    get_address_from_pair(&mut {self.h}, &mut {self.l}, (self.memory.len() - 1) as u16) as usize
+                ]);
                 write_to_memory(self, self.h, self.l, answer as u8);
             }, // INR M
             0x3C => {
                 let answer: u16 = (self.a as u16) + 1;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.a);
                 self.a = answer as u8;
             }, // INR A
             //#endregion
@@ -566,44 +634,46 @@ impl Processor8080{
             //#region
             0x05 => {
                 let answer: u16 = (self.b as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.b);
                 self.b = answer as u8;
             }, // DCR B
             0x0D => {
                 let answer: u16 = (self.c as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.c);
                 self.c = answer as u8;
             }, // DCR C
             0x15 => {
                 let answer: u16 = (self.d as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.d);
                 self.d = answer as u8;
             }, // DCR D
             0x1D => {
                 let answer: u16 = (self.e as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.e);
                 self.e = answer as u8;
             }, // DCR E
             0x25 => {
                 let answer: u16 = (self.h as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.h);
                 self.h = answer as u8;
             }, // DCR H
             0x2D => {
                 let answer: u16 = (self.l as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.l);
                 self.l = answer as u8;
             }, // DCR L
             0x35 => {
                 let answer: u16 = (self.memory[
                     get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
                 ] as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.memory[
+                    get_address_from_pair(&mut {self.h}, &mut {self.l}, (self.memory.len() - 1) as u16) as usize
+                ]);
                 write_to_memory(self, self.h, self.l, answer as u8);
             }, // DCR M
             0x3D => {
                 let answer: u16 = (self.a as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer);
+                step_register_flags(self, answer, self.a);
                 self.a = answer as u8;
             }, // DCR A
             //#endregion
@@ -696,8 +766,22 @@ impl Processor8080{
                 self.program_counter += 1;
             }, // ACI - Immediate
             //#endregion
-    
-    
+
+
+            /********************************************
+            *                 Double Add                *
+            ********************************************/
+            //#region
+            0x09 => double_add(self, self.b, self.c), // DAD B
+            0x19 => double_add(self, self.d, self.e), // DAD D
+            0x29 => double_add(self, self.h, self.l), // DAD H
+            0x39 => {
+                let stack_pointer_split = seperate_16bit_pair(self.stack_pointer);
+                double_add(self, stack_pointer_split.0, stack_pointer_split.1);
+            }, // DAD SP
+            //#endregion
+
+
             /********************************************
             *              Subtract Opcodes             *
             ********************************************/
@@ -733,73 +817,8 @@ impl Processor8080{
                 self.program_counter += 1;
             }, // SBI - Immediate
             //#endregion
-    
-    
-            /********************************************
-            *               Stack Opcodes               *
-            ********************************************/
-            //#region
-            0xC5 => push_onto_stack(self, self.b, self.c), // PUSH B
-            0xD5 => push_onto_stack(self, self.d, self.e), // PUSH D
-            0xE5 => push_onto_stack(self, self.h, self.l), // PUSH H
-            0xF5 => push_onto_stack(self, self.a, {
-                // Format: S Z 0 AC 0 P 1 C
-                let mut flags: u8 = 0b00000010;
-                if self.flags.sign{
-                    flags = flags | 0b10000000;
-                }
-                if self.flags.zero{
-                    flags = flags | 0b01000000;
-                }
-                if self.flags.parity{
-                    flags = flags | 0b00000100;
-                }
-                if self.flags.carry{
-                    flags = flags | 0b00000001;
-                }
-                flags
-            }), // PUSH PSW
-            0xC1 => {
-                self.b = self.memory[(self.stack_pointer + 1) as usize];
-                self.c = self.memory[self.stack_pointer as usize];
-                self.stack_pointer += 2;
-            }, // POP B
-            0xD1 => {
-                self.d = self.memory[(self.stack_pointer + 1) as usize];
-                self.e = self.memory[self.stack_pointer as usize];
-                self.stack_pointer += 2;
-            }, // POP D
-            0xE1 => {
-                self.h = self.memory[(self.stack_pointer + 1) as usize];
-                self.l = self.memory[self.stack_pointer as usize];
-                self.stack_pointer += 2;
-            }, // POP H
-            0xF1 => {
-                // Format: S Z 0 AC 0 P 1 C
-                self.a = self.memory[(self.stack_pointer + 1) as usize];
-                let flag_values = self.memory[self.stack_pointer as usize];
-                self.flags.sign = flag_values & 0b10000000 != 0;
-                self.flags.zero = flag_values & 0b01000000 != 0;
-                self.flags.parity = flag_values & 0b00000100 != 0;
-                self.flags.carry = flag_values & 0b00000001 != 0;
-                self.stack_pointer += 2;
-            }, // POP PSW
-            0xF9 => self.stack_pointer = ((self.h as u16) << 8) | (self.l as u16), // SPHL
-            0xE3 => {
-                mem::swap(&mut self.h, &mut self.memory[(self.stack_pointer + 1) as usize]);
-                mem::swap(&mut self.l, &mut self.memory[self.stack_pointer as usize]);
-            }, // XTHL
-            //#endregion
 
-    
-            /********************************************
-            *                Not Opcodes                *
-            ********************************************/
-            //#region
-            0x2F => self.a = !self.a, // CMA
-            //#endregion
-    
-    
+
             /********************************************
             *                   Rotate                  *
             ********************************************/
@@ -827,7 +846,7 @@ impl Processor8080{
                 self.flags.carry = carry_temp; // Set the new carry bit
             }, // RAR
             //#endregion
-    
+
     
             /********************************************
             *                  Compare                  *
@@ -849,16 +868,7 @@ impl Processor8080{
                 self.program_counter += 1;
             }, // CPI data
             //#endregion
-    
-    
-            /********************************************
-            *                   Carry                   *
-            ********************************************/
-            //#region
-            0x37 => self.flags.carry = true, // STC
-            0x3F => self.flags.carry = !self.flags.carry, // CMC
-            //#endregion
-    
+
     
             /********************************************
             *                And Opcodes                *
@@ -923,6 +933,14 @@ impl Processor8080{
                 logical(self, self.memory[self.program_counter as usize], |x,y| (x^y) as u16);
                 self.program_counter += 1;
             }, // XRI
+            //#endregion
+    
+    
+            /********************************************
+            *                Not Opcodes                *
+            ********************************************/
+            //#region
+            0x2F => self.a = !self.a, // CMA
             //#endregion
     
     
@@ -1065,7 +1083,7 @@ fn add(processor: &mut Processor8080, byte: u8, carry: bool){
         }
     };
 
-    set_flags(answer, processor);
+    set_flags(answer, processor, processor.a);
 
     processor.a = answer as u8;
 
@@ -1082,7 +1100,7 @@ fn subtract(processor: &mut Processor8080, byte: u8, carry: bool){
         }
     };
 
-    set_flags(answer as u16, processor);
+    set_flags(answer as u16, processor, processor.a);
 
     processor.a = answer as u8;
     
@@ -1136,7 +1154,7 @@ fn logical(processor: &mut Processor8080, byte: u8, operator: fn(u8, u8) -> u16)
 
     let answer: u16 = operator(processor.a, byte);
 
-    set_flags(answer, processor);
+    set_flags(answer, processor, processor.a);
 
     processor.flags.carry = false; // Carry reset to false as there will never be a carry with a logical operation
 
@@ -1148,7 +1166,7 @@ fn compare(processor: &mut Processor8080, byte: u8){
     
     let answer: u16 = (processor.a as u32 + get_twos_complement(byte) as u32) as u16;
     
-    set_flags(answer, processor);
+    set_flags(answer, processor, processor.a);
 
 }
 //#endregion
@@ -1202,7 +1220,22 @@ fn write_to_memory(processor: &mut Processor8080, byte_1: u8, byte_2: u8, value:
 *                   Flags                   *
 ********************************************/
 //#region
-fn set_flags(answer: u16, processor: &mut Processor8080){
+fn set_flags(answer: u16, processor: &mut Processor8080, previous_register: u8){
+
+    let operation_value: u16;
+
+    if previous_register > answer as u8{ // A subtraction occurred
+
+        operation_value = get_twos_complement(previous_register - answer as u8);
+
+    }
+    else{ // An addition or a subtraction of 0 ocurred
+
+        operation_value = answer - previous_register as u16;
+
+    }
+
+    processor.flags.auxiliary_carry = ((previous_register as u32 & 0x0f) + operation_value as u32) & 0xf0 != 0;
 
     processor.flags.zero = (answer & 0xff) == 0;
 
@@ -1230,11 +1263,11 @@ fn check_parity(mut value: u16) -> bool {
 
 }
 
-fn step_register_flags(processor: &mut Processor8080, answer: u16){
+fn step_register_flags(processor: &mut Processor8080, answer: u16, previous_register: u8){
 
     let carry_value = processor.flags.carry;
 
-    set_flags(answer, processor);
+    set_flags(answer, processor, previous_register);
 
     processor.flags.carry = carry_value;
 

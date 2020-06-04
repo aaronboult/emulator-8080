@@ -26,31 +26,41 @@ fn main() {
 
     };
 
-
-    display_options();
-
-
-    let result = {
-        
-        let mut game_id = String::new();
-
-        io::stdin().read_line(&mut game_id).expect("Failed to read from input stream");
+    if test{
     
-        check_game_id(&game_id)
-
-    };
-
-
-    if result.is_ok(){
-
-        let mut arcade_machine = machine::Machine::new(result.unwrap(), log_to_file, test); // Params: Game ID, Log To File, Test
+        let mut arcade_machine = machine::Machine::new(0, log_to_file, test); // Params: Game ID, Log To File, Test
     
         arcade_machine.start();
 
     }
     else{
 
-        println!("The game ID you entered is invalid");
+        display_options();
+    
+    
+        let result = {
+            
+            let mut game_id = String::new();
+    
+            io::stdin().read_line(&mut game_id).expect("Failed to read from input stream");
+        
+            check_game_id(&game_id)
+    
+        };
+    
+    
+        if result.is_ok(){
+    
+            let mut arcade_machine = machine::Machine::new(result.unwrap(), false, false); // Params: Game ID, Log To File, Test
+        
+            arcade_machine.start();
+    
+        }
+        else{
+    
+            println!("The game ID you entered is invalid");
+    
+        }
 
     }
 
