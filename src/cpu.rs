@@ -308,18 +308,17 @@ impl Processor8080{
                 self.program_counter += 1;
             }, // IN
             0x27 => {
+                let mut correction = 0;
+                let mut carry_temp = self.flags.carry;
                 if self.a & 0x0f > 9 || self.flags.auxiliary_carry{
-                    self.flags.auxiliary_carry = ((self.a & 0x0f) + 6) & 0x10 != 0; // Clear the higher four bits, add 6 then check for carry
-                    self.a = (self.a as u16 + 6) as u8;
+                    correction += 0x06;
                 }
-                if (self.a & 0xf0) >> 4 > 9 || self.flags.carry{
-                    let result = (((self.a as u16 & 0xf0) >> 4) + 6) << 4 | (self.a & 0x0f) as u16; // Add 6 to the higher four bits, then place the lower four bits back on
-                    self.flags.carry = result & 0xff00 != 0 || self.flags.carry; // If there is a carry out of the higher four bits or the carry flag is set
-                    self.a = result as u8;
+                if (self.a & 0xf0) >> 4 > 9 || carry_temp{
+                    correction += 0x60;
+                    carry_temp = true;
                 }
-                self.flags.zero = self.a == 0;
-                self.flags.sign = self.a & 0x80 != 0;
-                self.flags.parity = check_parity(self.a as u16);
+                add(self, correction, false);
+                self.flags.carry = carry_temp;
             }, // DAA
             0x76 => panic!("Halting"), // HLT
             //#endregion
@@ -870,19 +869,19 @@ impl Processor8080{
             *                And Opcodes                *
             ********************************************/
             //#region
-            0xA0 => logical(self, self.b, |x,y| (x&y) as u16), // ANA B
-            0xA1 => logical(self, self.c, |x,y| (x&y) as u16), // ANA C
-            0xA2 => logical(self, self.d, |x,y| (x&y) as u16), // ANA D
-            0xA3 => logical(self, self.e, |x,y| (x&y) as u16), // ANA E
-            0xA4 => logical(self, self.h, |x,y| (x&y) as u16), // ANA H
-            0xA5 => logical(self, self.l, |x,y| (x&y) as u16), // ANA L
+            0xA0 => and(self, self.b), // ANA B
+            0xA1 => and(self, self.c), // ANA C
+            0xA2 => and(self, self.d), // ANA D
+            0xA3 => and(self, self.e), // ANA E
+            0xA4 => and(self, self.h), // ANA H
+            0xA5 => and(self, self.l), // ANA L
             0xA6 => {
                 let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
-                logical(self, self.memory[address as usize], |x,y| (x&y) as u16)
+                and(self, self.memory[address as usize])
             }, // ANA M
-            0xA7 => logical(self, self.a, |x,y| (x&y) as u16), // ANA A
+            0xA7 => and(self, self.a), // ANA A
             0xE6 => {
-                logical(self, self.memory[self.program_counter as usize], |x,y| (x&y) as u16);
+                and(self, self.memory[self.program_counter as usize]);
                 self.program_counter += 1;
             }, // ANI
             //#endregion
@@ -892,19 +891,19 @@ impl Processor8080{
             *                 Or Opcodes                *
             ********************************************/
             //#region
-            0xB0 => logical(self, self.b, |x,y| (x|y) as u16), // ORA B
-            0xB1 => logical(self, self.c, |x,y| (x|y) as u16), // ORA C
-            0xB2 => logical(self, self.d, |x,y| (x|y) as u16), // ORA D
-            0xB3 => logical(self, self.e, |x,y| (x|y) as u16), // ORA E
-            0xB4 => logical(self, self.h, |x,y| (x|y) as u16), // ORA H
-            0xB5 => logical(self, self.l, |x,y| (x|y) as u16), // ORA L
+            0xB0 => or(self, self.b), // ORA B
+            0xB1 => or(self, self.c), // ORA C
+            0xB2 => or(self, self.d), // ORA D
+            0xB3 => or(self, self.e), // ORA E
+            0xB4 => or(self, self.h), // ORA H
+            0xB5 => or(self, self.l), // ORA L
             0xB6 => {
                 let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
-                logical(self, self.memory[address as usize], |x,y| (x|y) as u16)
+                or(self, self.memory[address as usize])
             }, // ORA M
-            0xB7 => logical(self, self.a, |x,y| (x|y) as u16),  // ORA A
+            0xB7 => or(self, self.a),  // ORA A
             0xF6 => {
-                logical(self, self.memory[self.program_counter as usize], |x,y| (x|y) as u16);
+                or(self, self.memory[self.program_counter as usize]);
                 self.program_counter += 1;
             }, // ORI
             //#endregion
@@ -914,19 +913,19 @@ impl Processor8080{
             *                XOR Opcodes                *
             ********************************************/
             //#region
-            0xA8 => logical(self, self.b, |x,y| (x^y) as u16), // XRA B
-            0xA9 => logical(self, self.c, |x,y| (x^y) as u16), // XRA C
-            0xAA => logical(self, self.d, |x,y| (x^y) as u16), // XRA D
-            0xAB => logical(self, self.e, |x,y| (x^y) as u16), // XRA E
-            0xAC => logical(self, self.h, |x,y| (x^y) as u16), // XRA H
-            0xAD => logical(self, self.l, |x,y| (x^y) as u16), // XRA L
+            0xA8 => xor(self, self.b), // XRA B
+            0xA9 => xor(self, self.c), // XRA C
+            0xAA => xor(self, self.d), // XRA D
+            0xAB => xor(self, self.e), // XRA E
+            0xAC => xor(self, self.h), // XRA H
+            0xAD => xor(self, self.l), // XRA L
             0xAE => {
                 let address = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16);
-                logical(self, self.memory[address as usize], |x,y| (x^y) as u16)
+                xor(self, self.memory[address as usize])
             },  // XRA M
-            0xAF => logical(self, self.a, |x,y| (x^y) as u16), // XRA A
+            0xAF => xor(self, self.a), // XRA A
             0xEE => {
-                logical(self, self.memory[self.program_counter as usize], |x,y| (x^y) as u16);
+                xor(self, self.memory[self.program_counter as usize]);
                 self.program_counter += 1;
             }, // XRI
             //#endregion
@@ -1079,7 +1078,9 @@ fn add(processor: &mut Processor8080, byte: u8, carry: bool){
         }
     };
 
-    set_flags(answer, processor, processor.a);
+    set_flags(answer, processor);
+
+    processor.flags.auxiliary_carry = ((answer ^ processor.a as u16 ^ byte as u16) & 0x10) != 0;
 
     processor.a = answer as u8;
 
@@ -1096,7 +1097,11 @@ fn subtract(processor: &mut Processor8080, byte: u8, carry: bool){
         }
     };
 
-    set_flags(answer as u16, processor, processor.a);
+    set_flags(answer as u16, processor);
+
+    processor.flags.auxiliary_carry = ((answer ^ processor.a as u32 ^ byte as u32) & 0x10) != 0;
+
+    processor.flags.carry = !processor.flags.carry;
 
     processor.a = answer as u8;
     
@@ -1146,11 +1151,35 @@ fn get_twos_complement(byte: u8) -> u16{
 *                  Logical                  *
 ********************************************/
 //#region
+fn and(processor: &mut Processor8080, byte: u8){
+
+    processor.flags.auxiliary_carry = ((processor.a | byte) & 0x08) != 0;
+
+    logical(processor, byte, |x,y| (x&y) as u16);
+
+}
+
+fn or(processor: &mut Processor8080, byte: u8){
+
+    logical(processor, byte, |x,y| (x|y) as u16);
+
+    processor.flags.auxiliary_carry = false;
+
+}
+
+fn xor(processor: &mut Processor8080, byte: u8){
+
+    logical(processor, byte, |x,y| (x^y) as u16);
+
+    processor.flags.auxiliary_carry = false;
+    
+}
+
 fn logical(processor: &mut Processor8080, byte: u8, operator: fn(u8, u8) -> u16){
 
     let answer: u16 = operator(processor.a, byte);
 
-    set_flags(answer, processor, processor.a);
+    set_flags(answer, processor);
 
     processor.flags.carry = false; // Carry reset to false as there will never be a carry with a logical operation
 
@@ -1162,7 +1191,9 @@ fn compare(processor: &mut Processor8080, byte: u8){
     
     let answer: u16 = (processor.a as u32 + get_twos_complement(byte) as u32) as u16;
     
-    set_flags(answer, processor, processor.a);
+    set_flags(answer, processor);
+
+    processor.flags.auxiliary_carry = (!(processor.a as u16 ^ answer ^ byte as u16) & 0x10) != 0;
 
 }
 //#endregion
@@ -1216,22 +1247,7 @@ fn write_to_memory(processor: &mut Processor8080, byte_1: u8, byte_2: u8, value:
 *                   Flags                   *
 ********************************************/
 //#region
-fn set_flags(answer: u16, processor: &mut Processor8080, previous_register: u8){
-
-    let operation_value: u16;
-
-    if previous_register > answer as u8{ // A subtraction occurred
-
-        operation_value = get_twos_complement(previous_register - answer as u8);
-
-    }
-    else{ // An addition or a subtraction of 0 ocurred
-
-        operation_value = answer - previous_register as u16;
-
-    }
-
-    processor.flags.auxiliary_carry = ((previous_register as u32 & 0x0f) + operation_value as u32) & 0xf0 != 0;
+pub fn set_flags(answer: u16, processor: &mut Processor8080){
 
     processor.flags.zero = (answer & 0xff) == 0;
 
@@ -1263,7 +1279,9 @@ fn step_register_flags(processor: &mut Processor8080, answer: u16, previous_regi
 
     let carry_value = processor.flags.carry;
 
-    set_flags(answer, processor, previous_register);
+    set_flags(answer, processor);
+
+    processor.flags.auxiliary_carry = (answer & 0xf0) == 0; // If the least significant bits are 0, a carry out of them occurred
 
     processor.flags.carry = carry_value;
 
