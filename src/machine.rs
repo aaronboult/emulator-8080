@@ -7,6 +7,7 @@ use crate::cpu::*;
 
 use std::time::SystemTime;
 
+use sdl2::image;
 use sdl2::mixer;
 use mixer::{Chunk, Channel};
 
@@ -46,15 +47,21 @@ impl Machine{
         let sdl_context = sdl2::init().expect("Failed to initialize SDL2");
         let video_subsystem = sdl_context.video().expect("Failed to retrieve SDL2 video subsystem");
 
+        image::init(image::InitFlag::all()).expect("Failed to initialize SDL2 image");
+
         mixer::init(mixer::InitFlag::all()).expect("Failed to initialize audio mixer");
 
         mixer::open_audio(mixer::DEFAULT_FREQUENCY, mixer::DEFAULT_FORMAT, 8, 1024).expect("Failed to open audio mixer");
 
-        let window = video_subsystem.window("Test Window", 128, 128)
+        let mut window = video_subsystem.window("Test Window", 128, 128)
                                         .position_centered()
                                         .resizable()
                                         .build()
                                         .expect("Failed to create window");
+
+        let icon: sdl2::surface::Surface = image::LoadSurface::from_file("icon.png").expect("Failed to load icon");
+
+        window.set_icon(icon);
 
         let mut setup_config = SetupConfiguration{
             input_handler: test::test_in,
