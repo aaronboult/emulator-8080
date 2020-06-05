@@ -1,3 +1,6 @@
 /target
 log.txt
 *.dll
+!SDL2*.dll
+!mscv
+!gnu-mingw
