@@ -578,46 +578,44 @@ impl Processor8080{
             //#region
             0x04 => {
                 let answer: u16 = (self.b as u16) + 1;
-                step_register_flags(self, answer, self.b);
+                step_register_flags(self, answer);
                 self.b = answer as u8;
             }, // INR B
             0x0C => {
                 let answer: u16 = (self.c as u16) + 1;
-                step_register_flags(self, answer, self.c);
+                step_register_flags(self, answer);
                 self.c = answer as u8;
             }, // INR C
             0x14 => {
                 let answer: u16 = (self.d as u16) + 1;
-                step_register_flags(self, answer, self.d);
+                step_register_flags(self, answer);
                 self.d = answer as u8;
             }, // INR D
             0x1C => {
                 let answer: u16 = (self.e as u16) + 1;
-                step_register_flags(self, answer, self.e);
+                step_register_flags(self, answer);
                 self.e = answer as u8;
             }, // INR E
             0x24 => {
                 let answer: u16 = (self.h as u16) + 1;
-                step_register_flags(self, answer, self.h);
+                step_register_flags(self, answer);
                 self.h = answer as u8;
             }, // INR H
             0x2C => {
                 let answer: u16 = (self.l as u16) + 1;
-                step_register_flags(self, answer, self.l);
+                step_register_flags(self, answer);
                 self.l = answer as u8;
             }, // INR L
             0x34 => {
                 let answer: u16 = (self.memory[
                     get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
                 ] as u16) + 1;
-                step_register_flags(self, answer, self.memory[
-                    get_address_from_pair(&mut {self.h}, &mut {self.l}, (self.memory.len() - 1) as u16) as usize
-                ]);
+                step_register_flags(self, answer);
                 write_to_memory(self, self.h, self.l, answer as u8);
             }, // INR M
             0x3C => {
                 let answer: u16 = (self.a as u16) + 1;
-                step_register_flags(self, answer, self.a);
+                step_register_flags(self, answer);
                 self.a = answer as u8;
             }, // INR A
             //#endregion
@@ -629,46 +627,44 @@ impl Processor8080{
             //#region
             0x05 => {
                 let answer: u16 = (self.b as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.b);
+                step_register_flags(self, answer);
                 self.b = answer as u8;
             }, // DCR B
             0x0D => {
                 let answer: u16 = (self.c as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.c);
+                step_register_flags(self, answer);
                 self.c = answer as u8;
             }, // DCR C
             0x15 => {
                 let answer: u16 = (self.d as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.d);
+                step_register_flags(self, answer);
                 self.d = answer as u8;
             }, // DCR D
             0x1D => {
                 let answer: u16 = (self.e as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.e);
+                step_register_flags(self, answer);
                 self.e = answer as u8;
             }, // DCR E
             0x25 => {
                 let answer: u16 = (self.h as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.h);
+                step_register_flags(self, answer);
                 self.h = answer as u8;
             }, // DCR H
             0x2D => {
                 let answer: u16 = (self.l as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.l);
+                step_register_flags(self, answer);
                 self.l = answer as u8;
             }, // DCR L
             0x35 => {
                 let answer: u16 = (self.memory[
                     get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16) as usize
                 ] as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.memory[
-                    get_address_from_pair(&mut {self.h}, &mut {self.l}, (self.memory.len() - 1) as u16) as usize
-                ]);
+                step_register_flags(self, answer);
                 write_to_memory(self, self.h, self.l, answer as u8);
             }, // DCR M
             0x3D => {
                 let answer: u16 = (self.a as u32 + get_twos_complement(1) as u32) as u16;
-                step_register_flags(self, answer, self.a);
+                step_register_flags(self, answer);
                 self.a = answer as u8;
             }, // DCR A
             //#endregion
@@ -1275,7 +1271,7 @@ fn check_parity(mut value: u16) -> bool {
 
 }
 
-fn step_register_flags(processor: &mut Processor8080, answer: u16, previous_register: u8){
+fn step_register_flags(processor: &mut Processor8080, answer: u16){
 
     let carry_value = processor.flags.carry;
 
