@@ -127,11 +127,6 @@ impl Processor8080{
 
         self.load_file("cpudiag.bin".to_string(), 0x100, 1453);
 
-        // Skip DAA test
-        // self.memory[0x59C] = 0xC3;
-        // self.memory[0x59D] = 0xC2;
-        // self.memory[0x59E] = 0x05;
-
         // Handle outputs - return instantly
         self.memory[0x06] = 0xC9;
 
@@ -146,6 +141,8 @@ impl Processor8080{
         self.program_counter = 0x100;
 
         self.testing = true;
+
+        self.debug = false;
 
     }
 
@@ -221,8 +218,8 @@ impl Processor8080{
             self.a, self.b, self.c, self.d, self.e, self.h, self.l
         ).expect("Failed to write to output buffer");
     
-        write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n", 
-            self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry
+        write!(self.logger, "Flags:\n\tZero: {}\n\tSign: {}\n\tParity: {}\n\tCarry: {}\n\tAuxiliary Carry: {}\n", 
+            self.flags.zero, self.flags.sign, self.flags.parity, self.flags.carry, self.flags.auxiliary_carry
         ).expect("Failed to write to output buffer");
         
         write!(self.logger, "Program Counter:\n\tDecimal: {0}\n\tHex: {0:x}\n", self.program_counter).expect("Failed to write to output buffer");
@@ -323,7 +320,6 @@ impl Processor8080{
                 self.flags.zero = self.a == 0;
                 self.flags.sign = self.a & 0x80 != 0;
                 self.flags.parity = check_parity(self.a as u16);
-
             }, // DAA
             0x76 => panic!("Halting"), // HLT
             //#endregion

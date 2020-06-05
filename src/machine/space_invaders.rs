@@ -86,7 +86,7 @@ pub fn setup(setup_config: &mut SetupConfiguration){
 
     setup_config.window.set_title("Space Invaders").expect("Failed to set window title");
 
-    setup_config.window.set_size(224, 256).expect("Failed to size window");
+    setup_config.window.set_size(224 * 2, 256 * 2).expect("Failed to size window");
 
 }
 
@@ -276,7 +276,18 @@ fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, ports:
 
         3 => {
 
-            play_audio(value, ports[3], 0b00000001, 0, audio_controller); // UFO
+            if (value & 0b00000001) != 0 && (ports[3] & 0b00000001) == 0{
+
+                audio_controller.play_track(0, -1);
+        
+            }
+            else if (value & 0b00000001) == 0 && (ports[3] & 0b00000001) != 0{
+
+                audio_controller.stop_track(0);
+
+            }
+
+            // play_audio(value, ports[3], 0b00000001, 0, audio_controller); // UFO
 
             play_audio(value, ports[3], 0b00000010, 1, audio_controller); // Shoot
 
@@ -314,9 +325,9 @@ fn space_invaders_out(processor: &mut Processor8080, port: u8, value: u8, ports:
 
 fn play_audio(value: u8, old_value: u8, and_value: u8, sound_index: u8, audio_controller: &mut AudioController){
 
-    if value & and_value != 0 && !(old_value & and_value) != 0{
+    if (value & and_value) != 0 && (old_value & and_value) == 0{
 
-        audio_controller.play_track(sound_index);
+        audio_controller.play_track(sound_index, 0);
 
     }
 

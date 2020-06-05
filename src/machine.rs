@@ -199,11 +199,29 @@ impl AudioController{
 
     }
 
-    pub fn play_track(&mut self, track_index: u8){
+    pub fn play_track(&mut self, track_index: u8, number_of_repeats: i32){
 
         if mixer::get_playing_channels_number() != 8{
 
-            Channel::play(Channel::all(), &self.audio_tracks[track_index as usize], 1).expect("Failed to play audio track");
+            Channel(-1).play(&self.audio_tracks[track_index as usize], number_of_repeats).expect("Failed to play audio track");
+        
+        }
+
+    }
+
+    pub fn stop_track(&mut self, track_index: u8){
+
+        for channel_index in 0..8{
+
+            if Channel(channel_index).is_playing(){
+
+                if self.audio_tracks[track_index as usize].raw == Channel(channel_index).get_chunk().unwrap().raw{
+    
+                    Channel(channel_index).halt();
+    
+                }
+
+            }
 
         }
 
