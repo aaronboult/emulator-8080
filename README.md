@@ -4,8 +4,8 @@ An emulator for the Intel 8080 CPU written in Rust using the SDL2 library for gr
 ## Building
 ##### Currently compilation to other platforms other than Windows have not been tested.
 
-1. Run `cargo build --release` in the root folder
-2. Copy all `.dll` files in the root directory, `cpudiag.bin` and `LICENSE` to `./target/release`
+1. Run `cargo build --release` in the root folder, ensuring not to modify the default output directory
+2. Copy `cpudiag.bin` to `./target/release`
 3. Copy all game source folders, e.g. `space-invaders-source` to `./target/release`
 
 ## Support and Extending Support
