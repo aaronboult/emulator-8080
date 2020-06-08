@@ -2,6 +2,8 @@
 An emulator for the Intel 8080 CPU written in Rust using the SDL2 library for graphics and the SDL2 Mixer library for audio.
 
 ## Building
+##### Currently compilation to other platforms other than Windows have not been tested.
+
 1. Run `cargo build --release` in the root folder
 2. Copy all `.dll` files in the root directory, `cpudiag.bin` and `LICENSE` to `./target/release`
 3. Copy all game source folders, e.g. `space-invaders-source` to `./target/release`
