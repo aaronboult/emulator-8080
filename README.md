@@ -1,15 +1,24 @@
 # emulator-8080
 An emulator for the Intel 8080 CPU written in Rust using the SDL2 library for graphics and the SDL2 Mixer library for audio.
 
-## Building
-##### Currently compilation to other platforms other than Windows have not been tested.
+# Sections
+- [Building](#building)
+- [Extension](#support-and-extending-support)
+- [Documentation](https://github.com/aaronboult/emulator-8080/wiki)
+- [Footnotes](#notes)
+
+# Building
 
 1. Run `cargo build --release` in the root folder, ensuring not to modify the default output directory
 2. Copy `cpudiag.bin` to `./target/release`
 3. Copy all game source folders, e.g. `space-invaders-source` to `./target/release`
 
-## Support and Extending Support
+#### Currently compilation to platforms other than Windows have not been tested.
+
+# Support and Extending Support
 Currently the only supported game is the 1978 version of Space Invaders.
+
+In order to test additions made to the emulator, you must first build the program, then copy all `.dll` files present in the `./target/release` folder into the root folder
 
 To add support for additional games, follow the below process:
   1. Place all of the games source files into a folder in the root directory; name the folder accordingly
@@ -49,7 +58,7 @@ To add support for additional games, follow the below process:
 ```
 
   4. Finally, in the `./src/main.rs` file you must increment the constant `NUMBER_OF_PROGRAMS_EMULATED` by 1, and then append another row to the `display_options()`, containing the name of the game you have added and the corresponding ID (this ID is the value that is matched against the `game_id` in `./src/machine.rs`, e.g.:
-  ```rust
+```rust
 print!("\
 Select one of the following by typing the corresponding ID
 
@@ -60,3 +69,7 @@ Select one of the following by typing the corresponding ID
 \n\
 :>> \
 ");
+```
+
+## Notes
+The root folder refers to the folder in which the manifest (`cargo.toml`) is placed

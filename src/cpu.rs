@@ -6,10 +6,6 @@ use std::mem;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 
-fn unimplemented_opcode(){
-    panic!("Unimplemented opcode");
-}
-
 pub struct FileToLoad{
     pub name: String,
     pub offset: usize,
@@ -1002,11 +998,7 @@ impl Processor8080{
             0xE9 => self.program_counter = get_address_from_pair(&mut self.h, &mut self.l, (self.memory.len() - 1) as u16), // PCHL
             //#endregion
     
-            _ => {
-                write!(self.logger, "Unimplemented Opcode:\n\tDenary: {0}\n\tHex: {0:x}\n", opcode).expect("Failed to write to output buffer");
-                self.debug_output();
-                unimplemented_opcode()
-            },
+            _ => {},
     
         }
     
@@ -1245,7 +1237,7 @@ fn write_to_memory(processor: &mut Processor8080, byte_1: u8, byte_2: u8, value:
 *                   Flags                   *
 ********************************************/
 //#region
-pub fn set_flags(answer: u16, processor: &mut Processor8080){
+fn set_flags(answer: u16, processor: &mut Processor8080){
 
     processor.flags.zero = (answer & 0xff) == 0;
 

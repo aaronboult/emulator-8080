@@ -17,10 +17,10 @@ pub struct Machine{
     interrupt_handler: fn(&mut Machine),
     key_event_handler: fn(&mut Machine),
     drawer: fn(&mut Machine),
-    pub timestamp: SystemTime,
+    timestamp: SystemTime,
 
     pub canvas: sdl2::render::Canvas<sdl2::video::Window>,
-    pub sdl_context: sdl2::Sdl,
+    sdl_context: sdl2::Sdl,
     pub audio_controller: AudioController,
 }
 
@@ -34,7 +34,6 @@ pub struct SetupConfiguration{
     ports: Vec<u8>,
 
     window: sdl2::video::Window,
-    sdl_context: sdl2::Sdl,
 
     audio_tracks: Vec<Chunk>,
 }
@@ -63,10 +62,9 @@ impl Machine{
             interrupt_handler: test::test_interrupt,
             drawer: test::draw,
             files: vec![],
-            ports: vec![0; 256],
+            ports: vec![0u8; 256],
 
             window: window,
-            sdl_context: sdl_context,
 
             audio_tracks: vec![],
         };
@@ -95,7 +93,7 @@ impl Machine{
             timestamp: SystemTime::now(),
 
             canvas: setup_config.window.into_canvas().build().expect("Failed to create canvas"),
-            sdl_context: setup_config.sdl_context,
+            sdl_context: sdl_context,
 
             audio_controller: AudioController::new(setup_config.audio_tracks),
         };
@@ -151,18 +149,7 @@ impl Machine{
 
     }
 
-    #[allow(dead_code)]
-    pub fn emulate_n(&mut self, n: usize){
-
-        for _ in 0..n{
-
-            self.cpu.emulate(&mut self.ports, &mut self.audio_controller);
-
-        }
-
-    }
-
-    pub fn get_time(&self) -> SystemTime{
+    fn get_time(&self) -> SystemTime{
 
         SystemTime::now()
 
