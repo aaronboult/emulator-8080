@@ -142,7 +142,7 @@ impl Processor8080{
 
         self.testing = true;
 
-        self.debug = false;
+        self.debug = true;
 
     }
 
@@ -228,7 +228,7 @@ impl Processor8080{
     
     }
 
-    fn check_cpudiag_status(&mut self){
+    fn check_cpudiag_status(&mut self, audio_controller: &mut AudioController){
 
         if self.program_counter == 5{
     
@@ -252,6 +252,8 @@ impl Processor8080{
 
                 write!(self.logger, "{}", string).expect("Failed to write to output buffer");
 
+                self.debug = false;
+
             }
             else if self.c == 2{
 
@@ -264,6 +266,8 @@ impl Processor8080{
 
             self.logger.flush().expect("Failed to flush output buffer");
 
+            audio_controller.close();
+
             std::process::exit(0);
 
         }
@@ -274,7 +278,7 @@ impl Processor8080{
 
         if self.testing{
 
-            self.check_cpudiag_status();
+            self.check_cpudiag_status(audio_controller);
 
         }
     
@@ -313,7 +317,7 @@ impl Processor8080{
                 if self.a & 0x0f > 9 || self.flags.auxiliary_carry{
                     correction += 0x06;
                 }
-                if (self.a & 0xf0) >> 4 > 9 || carry_temp{
+                if self.a >> 4 > 9 || carry_temp || (self.a >> 4 == 9 && correction != 0){ // Last condition: If the correction will inflate the highest order bits to be >9
                     correction += 0x60;
                     carry_temp = true;
                 }
@@ -1084,20 +1088,18 @@ fn add(processor: &mut Processor8080, byte: u8, carry: bool){
 
 fn subtract(processor: &mut Processor8080, byte: u8, carry: bool){
 
-    let answer: u32 = (processor.a as u32) + get_twos_complement(byte) as u32 + {
+    let answer: u16 = (processor.a as u32 + get_twos_complement(byte) as u32 + {
         if carry{
             get_twos_complement(1) as u32
         }
         else{
             0
         }
-    };
+    }) as u16;
 
-    set_flags(answer as u16, processor);
+    set_flags(answer, processor);
 
-    processor.flags.auxiliary_carry = ((answer ^ processor.a as u32 ^ byte as u32) & 0x10) != 0;
-
-    processor.flags.carry = !processor.flags.carry;
+    processor.flags.auxiliary_carry = ((answer ^ processor.a as u16 ^ byte as u16) & 0x10) != 0;
 
     processor.a = answer as u8;
     
