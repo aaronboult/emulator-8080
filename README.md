@@ -23,7 +23,7 @@ In order to test additions made to the emulator, you must first build the progra
 To add support for additional games, follow the below process:
   1. Place all of the games source files into a folder in the root directory; name the folder accordingly
   
-  2. Create a new rust file in the `./src/machine` directory. This file must contain the following 6 functions to be valid:
+  2. Create a new rust file in the `./src/machine` directory. This file must contain the following 6 functions to be valid (see `./src/machine/test.rs` for an example):
   
       - A draw function that takes a mutable reference to a `machine::Machine` struct. This function should read the video memory, accessible through `machine_reference.cpu.memory` and draw the stored image according to the given game's specification using the SDL2 canvas, accessible through `machine_reference.canvas`
       
